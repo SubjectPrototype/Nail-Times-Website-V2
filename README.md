@@ -1,70 +1,96 @@
-# Getting Started with Create React App
+# Nail Times Website V2
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Monorepo for the Nail Times project.
 
-## Available Scripts
+- Root app: React (Create React App) website
+- `server/`: Express + MongoDB backend
+- `mobile/`: Expo React Native app
 
-In the project directory, you can run:
+## Project Structure
 
-### `npm start`
+```text
+nail-shop/
+  mobile/    # Expo app
+  server/    # Node/Express API
+  src/       # React web app source
+```
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## Prerequisites
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+- Node.js 18+ (recommended)
+- npm
+- MongoDB connection string for the backend
 
-### `npm test`
+## Setup
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Install dependencies in each app:
 
-### `npm run build`
+```bash
+# root web app
+npm install
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+# backend
+cd server && npm install
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+# mobile app
+cd ../mobile && npm install
+```
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+## Environment Variables (Backend)
 
-### `npm run eject`
+1. In `server/`, copy `.env.example` to `.env`.
+2. Fill in real values.
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```bash
+cd server
+cp .env.example .env
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+PowerShell equivalent:
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+```powershell
+Copy-Item .env.example .env
+```
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## Run Locally
 
-## Learn More
+Run each service in its own terminal.
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+### 1) Web App (root)
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+```bash
+npm start
+```
 
-### Code Splitting
+Default: `http://localhost:3000`
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+### 2) Backend (`server/`)
 
-### Analyzing the Bundle Size
+```bash
+cd server
+npm run dev
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+Default: `http://localhost:4000`
 
-### Making a Progressive Web App
+### 3) Mobile (`mobile/`)
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+```bash
+cd mobile
+npm start
+```
 
-### Advanced Configuration
+Then choose iOS/Android/Web in Expo.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+## Common Git Workflow
 
-### Deployment
+```bash
+git add .
+git commit -m "Describe your change"
+git push
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+## Notes
 
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+- Never commit secrets. Keep `server/.env` out of Git.
+- Update `server/.env.example` when adding new required env vars.
