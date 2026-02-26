@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Prevent tiny horizontal seams / right-edge strip */
+html, body, #root {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  overflow-x: hidden;
+}
+
+body { }
