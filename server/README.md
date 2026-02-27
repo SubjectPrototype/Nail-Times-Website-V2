@@ -22,6 +22,7 @@
 - `TWILIO_AUTH_TOKEN`
 - `TWILIO_PHONE_NUMBER` (your Twilio SMS number in E.164 format)
 - `TWILIO_WEBHOOK_BASE_URL` (public backend URL used for webhook signature validation, e.g. `https://api.example.com`)
+- `ADMIN_NOTIFY_PHONE` (optional, admin phone to receive new booking SMS alerts in E.164 format)
 
 ## API routes
 - `POST /api/bookings`

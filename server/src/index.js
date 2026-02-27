@@ -35,6 +35,7 @@ const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
 const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioFromNumber = process.env.TWILIO_PHONE_NUMBER;
 const twilioWebhookBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
+const adminNotifyPhone = process.env.ADMIN_NOTIFY_PHONE;
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is required");
@@ -184,6 +185,25 @@ async function sendBookingSmsNotification({ booking, body }) {
     });
   } catch (error) {
     console.error("Failed to send booking SMS notification", error.message || error);
+  }
+}
+
+async function sendAdminBookingSmsNotification({ booking }) {
+  const to = normalizePhoneNumber(adminNotifyPhone);
+  if (!to) {
+    return;
+  }
+
+  const body =
+    `New booking request: ${booking.customer_name} ` +
+    `(${booking.customer_phone || booking.customer_email}) ` +
+    `for ${formatBookingDateTime(booking.start_time)}. ` +
+    `Services: ${toServiceSummary(booking)}.`;
+
+  try {
+    await sendSmsWithTwilio({ to, body });
+  } catch (error) {
+    console.error("Failed to send admin booking SMS notification", error.message || error);
   }
 }
 
@@ -464,6 +484,7 @@ app.post("/api/bookings", async (req, res) => {
         created.start_time
       )}. Services: ${toServiceSummary(created)}. We'll text you once it is confirmed.`,
     });
+    await sendAdminBookingSmsNotification({ booking: created.toObject() });
 
     return res.status(201).json(created);
   } catch (error) {
