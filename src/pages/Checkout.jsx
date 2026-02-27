@@ -20,6 +20,14 @@ export default function Checkout() {
   const apiBaseUrl =
     process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:4000`;
   const getItemDurationMinutes = (item) => Number(item.durationMinutes || Number(item.timeValue || 0) * 15 || 0);
+  const technicianOffDays = {
+    Thy: [2], // Tuesday
+    Jenny: [4], // Thursday
+    Tina: [0], // Sunday
+    Cindy: [1], // Monday
+    CK: [0], // Sunday
+    Kim: [5], // Friday
+  };
 
   const total = cartItems.reduce((sum, item) => sum + item.price, 0);
   const totalDurationMinutes = cartItems.reduce((sum, item) => sum + getItemDurationMinutes(item), 0);
@@ -42,6 +50,31 @@ export default function Checkout() {
     }
     return list;
   }, [weekOffset]);
+  const selectedTechnicians = useMemo(
+    () =>
+      cartItems
+        .map((item) => item.technician)
+        .filter((technician) => technician && technician !== "Any"),
+    [cartItems]
+  );
+  const unavailableDateSet = useMemo(() => {
+    const blocked = new Set();
+    if (selectedTechnicians.length === 0) {
+      return blocked;
+    }
+
+    for (const day of days) {
+      const weekday = new Date(`${day.iso}T00:00:00`).getDay();
+      const blockedForAnySelectedTech = selectedTechnicians.some((technician) =>
+        (technicianOffDays[technician] || []).includes(weekday)
+      );
+      if (blockedForAnySelectedTech) {
+        blocked.add(day.iso);
+      }
+    }
+
+    return blocked;
+  }, [days, selectedTechnicians]);
   const timeSlots = useMemo(() => {
     const weekday = selectedDate
       ? new Date(`${selectedDate}T00:00:00`).getDay()
@@ -93,6 +126,20 @@ export default function Checkout() {
       return rangeStart < slotEnd && rangeEnd > slotStart;
     });
   };
+
+  React.useEffect(() => {
+    if (days.length === 0) return;
+
+    const currentDateInWeek = days.some((day) => day.iso === selectedDate);
+    const currentDateUnavailable = selectedDate ? unavailableDateSet.has(selectedDate) : true;
+    if (currentDateInWeek && !currentDateUnavailable) {
+      return;
+    }
+
+    const firstAvailableDate = days.find((day) => !unavailableDateSet.has(day.iso));
+    setSelectedDate(firstAvailableDate ? firstAvailableDate.iso : "");
+    setSelectedTime("");
+  }, [days, selectedDate, unavailableDateSet]);
 
   React.useEffect(() => {
     let isCancelled = false;
@@ -241,17 +288,7 @@ export default function Checkout() {
                     type="button"
                     disabled={weekOffset === 0}
                     onClick={() => {
-                      const prevOffset = Math.max(0, weekOffset - 1);
-                      const prevStart = new Date(
-                        nowForDefaultDate.getFullYear(),
-                        nowForDefaultDate.getMonth(),
-                        nowForDefaultDate.getDate() + prevOffset * 7
-                      );
-                      const y = prevStart.getFullYear();
-                      const m = String(prevStart.getMonth() + 1).padStart(2, "0");
-                      const d = String(prevStart.getDate()).padStart(2, "0");
-                      setWeekOffset(prevOffset);
-                      setSelectedDate(`${y}-${m}-${d}`);
+                      setWeekOffset((prevOffset) => Math.max(0, prevOffset - 1));
                       setSelectedTime("");
                     }}
                     className="rounded-full border border-[#d8d8d8] px-3 py-1 text-sm text-[#555] transition-colors enabled:hover:border-[#c7668b] enabled:hover:text-[#c7668b] disabled:cursor-not-allowed disabled:opacity-40"
@@ -262,17 +299,7 @@ export default function Checkout() {
                   <button
                     type="button"
                     onClick={() => {
-                      const nextOffset = weekOffset + 1;
-                      const nextStart = new Date(
-                        nowForDefaultDate.getFullYear(),
-                        nowForDefaultDate.getMonth(),
-                        nowForDefaultDate.getDate() + nextOffset * 7
-                      );
-                      const y = nextStart.getFullYear();
-                      const m = String(nextStart.getMonth() + 1).padStart(2, "0");
-                      const d = String(nextStart.getDate()).padStart(2, "0");
-                      setWeekOffset(nextOffset);
-                      setSelectedDate(`${y}-${m}-${d}`);
+                      setWeekOffset((prevOffset) => prevOffset + 1);
                       setSelectedTime("");
                     }}
                     className="rounded-full border border-[#d8d8d8] px-3 py-1 text-sm text-[#555] transition-colors hover:border-[#c7668b] hover:text-[#c7668b]"
@@ -287,6 +314,7 @@ export default function Checkout() {
                   <button
                     key={day.iso}
                     type="button"
+                    disabled={unavailableDateSet.has(day.iso)}
                     onClick={() => {
                       setSelectedDate(day.iso);
                       setSelectedTime("");
@@ -295,12 +323,17 @@ export default function Checkout() {
                       selectedDate === day.iso
                         ? "border-[#c7668b] bg-[#c7668b] text-white"
                         : "border-[#d8d8d8] text-[#555]"
-                    }`}
+                    } ${unavailableDateSet.has(day.iso) ? "cursor-not-allowed opacity-40" : ""}`}
                   >
                     {day.weekday} {day.day}
                   </button>
                 ))}
               </div>
+              {selectedTechnicians.length > 0 && days.every((day) => unavailableDateSet.has(day.iso)) && (
+                <p className="mt-2 text-xs text-red-600">
+                  No available day this week for the selected technician(s). Choose a different week or technician.
+                </p>
+              )}
 
               <p className="mt-4 text-sm font-semibold text-[#555]">Booking time</p>
               <div className="mt-3 grid max-h-[220px] grid-cols-3 gap-2 overflow-y-auto pr-1 md:flex md:max-h-[180px] md:flex-wrap">
