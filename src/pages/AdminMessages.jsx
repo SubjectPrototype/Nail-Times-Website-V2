@@ -19,6 +19,7 @@ export default function AdminMessages() {
   const [sendingReply, setSendingReply] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const messageListRef = useRef(null);
+  const nameInputRef = useRef(null);
 
   const sendPresence = async (phone, isActive) => {
     if (!token || !phone) {
@@ -109,7 +110,10 @@ export default function AdminMessages() {
       const data = await response.json();
       setMessages(data.messages || []);
       setSelectedName(data.customer_name || "");
-      setNameInput(data.customer_name || "");
+      const isEditingName = document.activeElement === nameInputRef.current;
+      if (!options.silent || !isEditingName) {
+        setNameInput(data.customer_name || "");
+      }
       window.requestAnimationFrame(() => {
         const nextContainer = messageListRef.current;
         if (!nextContainer) {
@@ -344,6 +348,7 @@ export default function AdminMessages() {
                 <p className="text-sm text-[#777]">{selectedPhone}</p>
                 <form className="mt-3 flex gap-2" onSubmit={handleSaveName}>
                   <input
+                    ref={nameInputRef}
                     type="text"
                     value={nameInput}
                     onChange={(event) => setNameInput(event.target.value)}
