@@ -46,8 +46,8 @@ export default function AdminDashboard() {
     window.location.href = "/admin/login";
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete this booking?")) {
+  const handleCancel = async (id) => {
+    if (!window.confirm("Cancel this booking?")) {
       return;
     }
 
@@ -61,12 +61,13 @@ export default function AdminDashboard() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to delete booking");
+        throw new Error(errorData.error || "Failed to cancel booking");
       }
 
-      setBookings((prev) => prev.filter((item) => item._id !== id));
+      const data = await response.json();
+      setBookings((prev) => prev.map((item) => (item._id === id ? data.booking : item)));
     } catch (error) {
-      setErrorMessage(error.message || "Failed to delete booking");
+      setErrorMessage(error.message || "Failed to cancel booking");
     }
   };
 
@@ -140,7 +141,7 @@ export default function AdminDashboard() {
                   <p>Duration: {booking.duration_minutes || 60} min</p>
                 </div>
                 <div className="flex items-center gap-2">
-                  {booking.status !== "confirmed" && (
+                  {booking.status === "pending" && (
                     <button
                       className="rounded-md border border-green-600 px-3 py-1 text-sm text-green-700"
                       onClick={() => handleConfirm(booking._id)}
@@ -148,12 +149,14 @@ export default function AdminDashboard() {
                       Confirm
                     </button>
                   )}
-                  <button
-                    className="rounded-md border border-red-500 px-3 py-1 text-sm text-red-600"
-                    onClick={() => handleDelete(booking._id)}
-                  >
-                    Delete
-                  </button>
+                  {booking.status !== "cancelled" && (
+                    <button
+                      className="rounded-md border border-red-500 px-3 py-1 text-sm text-red-600"
+                      onClick={() => handleCancel(booking._id)}
+                    >
+                      Cancel
+                    </button>
+                  )}
                 </div>
               </div>
               {booking.notes && <p className="mt-2 text-sm text-[#555]">{booking.notes}</p>}

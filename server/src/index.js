@@ -137,6 +137,56 @@ async function sendSmsWithTwilio({ to, body }) {
   return payload;
 }
 
+function formatBookingDateTime(dateInput) {
+  return new Date(dateInput).toLocaleString("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function toServiceSummary(booking) {
+  if (Array.isArray(booking.selected_services) && booking.selected_services.length > 0) {
+    return booking.selected_services.map((item) => item.name).join(", ");
+  }
+  return booking.service || "your service";
+}
+
+async function logOutboundSms({ booking, body, twilioSid, twilioStatus }) {
+  const to = normalizePhoneNumber(booking.customer_phone);
+  if (!to) {
+    return;
+  }
+
+  await Message.create({
+    customer_phone: to,
+    customer_name: booking.customer_name || undefined,
+    direction: "outbound",
+    body,
+    twilio_message_sid: twilioSid || undefined,
+    twilio_status: twilioStatus || undefined,
+    read_at: new Date(),
+  });
+}
+
+async function sendBookingSmsNotification({ booking, body }) {
+  const to = normalizePhoneNumber(booking.customer_phone);
+  if (!to || !body) {
+    return;
+  }
+
+  try {
+    const sent = await sendSmsWithTwilio({ to, body });
+    await logOutboundSms({
+      booking,
+      body,
+      twilioSid: sent.sid,
+      twilioStatus: sent.status,
+    });
+  } catch (error) {
+    console.error("Failed to send booking SMS notification", error.message || error);
+  }
+}
+
 async function getMessageThreadName(phone) {
   const latestNamedMessage = await Message.findOne({
     customer_phone: phone,
@@ -387,6 +437,7 @@ app.post("/api/bookings", async (req, res) => {
       },
       {
         $match: {
+          status: { $ne: "cancelled" },
           start_time: { $lt: endTime },
           effective_end_time: { $gt: startTime },
         },
@@ -407,6 +458,12 @@ app.post("/api/bookings", async (req, res) => {
     });
 
     await sendBookingEmails({ booking: created.toObject(), adminEmail });
+    await sendBookingSmsNotification({
+      booking: created.toObject(),
+      body: `Nail Times: Hi ${created.customer_name}, we received your booking request for ${formatBookingDateTime(
+        created.start_time
+      )}. Services: ${toServiceSummary(created)}. We'll text you once it is confirmed.`,
+    });
 
     return res.status(201).json(created);
   } catch (error) {
@@ -450,6 +507,7 @@ app.get("/api/bookings/availability", async (req, res) => {
       },
       {
         $match: {
+          status: { $ne: "cancelled" },
           start_time: { $lt: dayEnd },
           effective_end_time: { $gt: dayStart },
         },
@@ -634,12 +692,21 @@ app.post("/api/admin/bookings/:id/confirm", requireAdmin, async (req, res) => {
     if (booking.status === "confirmed") {
       return res.json({ ok: true, booking });
     }
+    if (booking.status === "cancelled") {
+      return res.status(409).json({ error: "Cancelled booking cannot be confirmed" });
+    }
 
     booking.status = "confirmed";
     booking.confirmed_at = new Date();
     await booking.save();
 
     await sendBookingConfirmedEmail({ booking: booking.toObject() });
+    await sendBookingSmsNotification({
+      booking: booking.toObject(),
+      body: `Nail Times: Hi ${booking.customer_name}, your appointment is confirmed for ${formatBookingDateTime(
+        booking.start_time
+      )}. See you soon!`,
+    });
 
     return res.json({ ok: true, booking });
   } catch (error) {
@@ -649,8 +716,27 @@ app.post("/api/admin/bookings/:id/confirm", requireAdmin, async (req, res) => {
 
 app.delete("/api/admin/bookings/:id", requireAdmin, async (req, res) => {
   try {
-    await Appointment.deleteOne({ _id: req.params.id });
-    return res.json({ ok: true });
+    const booking = await Appointment.findById(req.params.id);
+    if (!booking) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    if (booking.status === "cancelled") {
+      return res.json({ ok: true, booking });
+    }
+
+    booking.status = "cancelled";
+    booking.cancelled_at = new Date();
+    await booking.save();
+
+    await sendBookingSmsNotification({
+      booking: booking.toObject(),
+      body: `Nail Times: Hi ${booking.customer_name}, your appointment for ${formatBookingDateTime(
+        booking.start_time
+      )} has been cancelled. Please text us or rebook online if you need another time.`,
+    });
+
+    return res.json({ ok: true, booking });
   } catch (error) {
     return res.status(500).json({ error: "Server error" });
   }
