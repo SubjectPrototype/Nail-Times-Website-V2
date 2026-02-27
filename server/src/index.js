@@ -81,6 +81,30 @@ function buildTwilioSignature(url, params, authToken) {
   return crypto.createHmac("sha1", authToken).update(data, "utf8").digest("base64");
 }
 
+function getTwilioValidationUrls(req) {
+  const urls = [];
+  const base = (twilioWebhookBaseUrl || "").trim().replace(/\/+$/, "");
+  const path = req.path || "";
+
+  if (base) {
+    // Support either:
+    // 1) TWILIO_WEBHOOK_BASE_URL as origin/base (e.g. https://api.example.com)
+    // 2) TWILIO_WEBHOOK_BASE_URL as full webhook URL (e.g. https://api.example.com/api/twilio/webhook)
+    if (base.endsWith(path)) {
+      urls.push(base);
+    } else {
+      urls.push(`${base}${path.startsWith("/") ? "" : "/"}${path}`);
+    }
+  }
+
+  if (req.protocol && req.get("host")) {
+    urls.push(`${req.protocol}://${req.get("host")}${req.originalUrl || req.path || ""}`);
+    urls.push(`${req.protocol}://${req.get("host")}${req.path || ""}`);
+  }
+
+  return Array.from(new Set(urls.filter(Boolean)));
+}
+
 function isValidTwilioWebhook(req) {
   if (!twilioAuthToken || !twilioWebhookBaseUrl) {
     return true;
@@ -91,19 +115,21 @@ function isValidTwilioWebhook(req) {
     return false;
   }
 
-  const base = twilioWebhookBaseUrl.endsWith("/")
-    ? twilioWebhookBaseUrl.slice(0, -1)
-    : twilioWebhookBaseUrl;
-  const url = `${base}${req.path}`;
-  const expected = buildTwilioSignature(url, req.body || {}, twilioAuthToken);
-  const expectedBuffer = Buffer.from(expected);
-  const receivedBuffer = Buffer.from(String(signature));
+  const receivedBuffer = Buffer.from(String(signature), "utf8");
+  const candidateUrls = getTwilioValidationUrls(req);
 
-  if (expectedBuffer.length !== receivedBuffer.length) {
-    return false;
+  for (const url of candidateUrls) {
+    const expected = buildTwilioSignature(url, req.body || {}, twilioAuthToken);
+    const expectedBuffer = Buffer.from(expected, "utf8");
+    if (expectedBuffer.length !== receivedBuffer.length) {
+      continue;
+    }
+    if (crypto.timingSafeEqual(expectedBuffer, receivedBuffer)) {
+      return true;
+    }
   }
 
-  return crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
+  return false;
 }
 
 function requireTwilioCredentials() {
@@ -361,6 +387,11 @@ app.get("/api/health", (req, res) => {
 
 app.post("/api/twilio/webhook", async (req, res) => {
   if (!isValidTwilioWebhook(req)) {
+    console.warn("Rejected Twilio webhook due to signature mismatch", {
+      configuredBase: twilioWebhookBaseUrl || "(not set)",
+      path: req.path,
+      host: req.get("host"),
+    });
     return res.status(401).type("text/plain").send("Unauthorized");
   }
 
