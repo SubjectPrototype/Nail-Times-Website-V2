@@ -75,16 +75,19 @@ export default function Checkout() {
 
     return blocked;
   }, [days, selectedTechnicians]);
-  const timeSlots = useMemo(() => {
-    const weekday = selectedDate
-      ? new Date(`${selectedDate}T00:00:00`).getDay()
-      : new Date().getDay();
+
+  const getBusinessHoursForDate = (dateIso) => {
+    const weekday = dateIso ? new Date(`${dateIso}T00:00:00`).getDay() : new Date().getDay();
     const dayHours = {
       0: { start: 12 * 60, end: 18 * 60 }, // Sunday 12:00 PM - 6:00 PM
       6: { start: 9 * 60, end: 19 * 60 }, // Saturday 9:00 AM - 7:00 PM
     };
     const defaultHours = { start: 9 * 60, end: 19 * 60 + 30 }; // Mon-Fri 9:00 AM - 7:30 PM
-    const hours = dayHours[weekday] || defaultHours;
+    return dayHours[weekday] || defaultHours;
+  };
+
+  const timeSlots = useMemo(() => {
+    const hours = getBusinessHoursForDate(selectedDate);
     const list = [];
     for (let minutes = hours.start; minutes <= hours.end; minutes += 15) {
       const hour = String(Math.floor(minutes / 60)).padStart(2, "0");
@@ -114,6 +117,14 @@ export default function Checkout() {
   const getSlotDate = (dateIso, timeValue) => {
     const [h, m] = timeValue.split(":").map(Number);
     return new Date(`${dateIso}T${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`);
+  };
+
+  const exceedsClosingTime = (dateIso, timeValue) => {
+    if (!dateIso || !timeValue) return false;
+    const [h, m] = timeValue.split(":").map(Number);
+    const startMinutes = h * 60 + m;
+    const { end: closingMinutes } = getBusinessHoursForDate(dateIso);
+    return startMinutes + availabilityDurationMinutes > closingMinutes;
   };
 
   const isBookedSlot = (dateIso, timeValue) => {
@@ -176,10 +187,10 @@ export default function Checkout() {
 
   React.useEffect(() => {
     if (!selectedDate || !selectedTime) return;
-    if (isBookedSlot(selectedDate, selectedTime)) {
+    if (isBookedSlot(selectedDate, selectedTime) || exceedsClosingTime(selectedDate, selectedTime)) {
       setSelectedTime("");
     }
-  }, [bookedRanges, availabilityDurationMinutes]);
+  }, [bookedRanges, availabilityDurationMinutes, selectedDate, selectedTime]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -338,7 +349,7 @@ export default function Checkout() {
               <p className="mt-4 text-sm font-semibold text-[#555]">Booking time</p>
               <div className="mt-3 grid max-h-[220px] grid-cols-3 gap-2 overflow-y-auto pr-1 md:flex md:max-h-[180px] md:flex-wrap">
                 {visibleTimeSlots.map((slot) => {
-                  const disabled = isBookedSlot(selectedDate, slot);
+                  const disabled = isBookedSlot(selectedDate, slot) || exceedsClosingTime(selectedDate, slot);
                   return (
                     <button
                       key={slot}
