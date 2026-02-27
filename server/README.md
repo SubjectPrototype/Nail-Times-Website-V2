@@ -16,6 +16,7 @@
 ## Optional env
 - `DEFAULT_APPOINTMENT_MINUTES` (default `60`)
 - `ADMIN_2FA_ENABLED` (`true` to require OTP, default `false` for direct admin login)
+- `BUSINESS_TIMEZONE` (default `America/Chicago`, used for SMS/email booking time formatting)
 
 ## Twilio env
 - `TWILIO_ACCOUNT_SID`

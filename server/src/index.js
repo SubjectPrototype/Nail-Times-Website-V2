@@ -31,6 +31,7 @@ const adminEmail = process.env.ADMIN_EMAIL;
 const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
 const defaultAppointmentMinutes = Number(process.env.DEFAULT_APPOINTMENT_MINUTES || 60);
 const admin2faEnabled = String(process.env.ADMIN_2FA_ENABLED || "false").toLowerCase() === "true";
+const businessTimeZone = process.env.BUSINESS_TIMEZONE || "America/Chicago";
 const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
 const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioFromNumber = process.env.TWILIO_PHONE_NUMBER;
@@ -142,6 +143,7 @@ function formatBookingDateTime(dateInput) {
   return new Date(dateInput).toLocaleString("en-US", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: businessTimeZone,
   });
 }
 

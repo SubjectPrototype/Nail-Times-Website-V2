@@ -1,4 +1,13 @@
 const RESEND_API_URL = "https://api.resend.com/emails";
+const businessTimeZone = process.env.BUSINESS_TIMEZONE || "America/Chicago";
+
+function formatBookingDateTime(dateInput) {
+  return new Date(dateInput).toLocaleString("en-US", {
+    dateStyle: "full",
+    timeStyle: "short",
+    timeZone: businessTimeZone,
+  });
+}
 
 async function sendBookingEmails({ booking, adminEmail }) {
   const apiKey = process.env.RESEND_API_KEY;
@@ -10,10 +19,7 @@ async function sendBookingEmails({ booking, adminEmail }) {
   const notifyEmail = process.env.ADMIN_NOTIFY_EMAIL || adminEmail;
   const subject = "Appointment Request Confirmation";
   const durationText = `${booking.duration_minutes || 60} minutes`;
-  const formattedDateTime = new Date(booking.start_time).toLocaleString("en-US", {
-    dateStyle: "full",
-    timeStyle: "short",
-  });
+  const formattedDateTime = formatBookingDateTime(booking.start_time);
   const servicesHtml = Array.isArray(booking.selected_services) && booking.selected_services.length > 0
     ? booking.selected_services
         .map(
@@ -122,10 +128,7 @@ async function sendBookingConfirmedEmail({ booking }) {
   }
 
   const from = process.env.FROM_EMAIL || "Nail Shop <onboarding@resend.dev>";
-  const dateTime = new Date(booking.start_time).toLocaleString("en-US", {
-    dateStyle: "full",
-    timeStyle: "short",
-  });
+  const dateTime = formatBookingDateTime(booking.start_time);
   const durationText = `${booking.duration_minutes || 60} minutes`;
   const servicesHtml = Array.isArray(booking.selected_services) && booking.selected_services.length > 0
     ? booking.selected_services
