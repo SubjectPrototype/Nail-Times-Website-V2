@@ -776,6 +776,9 @@ app.get("/api/admin/messages/:phone", requireAdmin, async (req, res) => {
   }
 
   try {
+    // Treat loading a conversation as active chat presence.
+    setAdminActiveChat(phone);
+
     const messages = await Message.find({ customer_phone: phone })
       .sort({ created_at: 1 })
       .lean();
@@ -839,6 +842,9 @@ app.post("/api/admin/messages/:phone/reply", requireAdmin, async (req, res) => {
   }
 
   try {
+    // Replying also means admin is actively in this chat.
+    setAdminActiveChat(phone);
+
     const customerName = await getThreadName(phone);
     const twilioMessage = await sendSmsWithTwilio({
       to: phone,
