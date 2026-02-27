@@ -138,6 +138,8 @@ export default function Checkout() {
     });
   };
 
+  const bookableTimeSlots = visibleTimeSlots.filter((slot) => !exceedsClosingTime(selectedDate, slot));
+
   React.useEffect(() => {
     if (days.length === 0) return;
 
@@ -348,8 +350,8 @@ export default function Checkout() {
 
               <p className="mt-4 text-sm font-semibold text-[#555]">Booking time</p>
               <div className="mt-3 grid max-h-[220px] grid-cols-3 gap-2 overflow-y-auto pr-1 md:flex md:max-h-[180px] md:flex-wrap">
-                {visibleTimeSlots.map((slot) => {
-                  const disabled = isBookedSlot(selectedDate, slot) || exceedsClosingTime(selectedDate, slot);
+                {bookableTimeSlots.map((slot) => {
+                  const disabled = isBookedSlot(selectedDate, slot);
                   return (
                     <button
                       key={slot}
