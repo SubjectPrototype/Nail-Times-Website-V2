@@ -18,6 +18,28 @@ export default function AdminMessages() {
   const [sendingReply, setSendingReply] = useState(false);
   const [savingName, setSavingName] = useState(false);
 
+  const sendPresence = async (phone, isActive) => {
+    if (!token || !phone) {
+      return;
+    }
+
+    try {
+      await fetch(`${apiBaseUrl}/api/admin/messages/presence`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customer_phone: phone,
+          is_active: Boolean(isActive),
+        }),
+      });
+    } catch {
+      // Presence ping is best effort.
+    }
+  };
+
   const loadGroups = async () => {
     setGroupsLoading(true);
     setErrorMessage("");
@@ -94,6 +116,37 @@ export default function AdminMessages() {
       return;
     }
     loadConversation(selectedPhone);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, selectedPhone]);
+
+  useEffect(() => {
+    if (!token || !selectedPhone) {
+      return;
+    }
+
+    const sendCurrentPresence = () => {
+      const isActive = document.visibilityState === "visible" && document.hasFocus();
+      sendPresence(selectedPhone, isActive);
+    };
+
+    sendCurrentPresence();
+    const intervalId = window.setInterval(sendCurrentPresence, 20000);
+
+    const handleVisibilityChange = () => sendCurrentPresence();
+    const handleFocus = () => sendCurrentPresence();
+    const handleBlur = () => sendCurrentPresence();
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleFocus);
+    window.addEventListener("blur", handleBlur);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("blur", handleBlur);
+      sendPresence(selectedPhone, false);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, selectedPhone]);
 

@@ -8,7 +8,12 @@ const jwt = require("jsonwebtoken");
 const { z } = require("zod");
 
 const { connectDb } = require("./db");
-const { sendBookingEmails, sendAdminOtpEmail, sendBookingConfirmedEmail } = require("./email");
+const {
+  sendBookingEmails,
+  sendAdminOtpEmail,
+  sendBookingConfirmedEmail,
+  sendAdminInboundMessageEmail,
+} = require("./email");
 const { requireAdmin } = require("./middleware/auth");
 const Appointment = require("./models/Appointment");
 const AdminOtp = require("./models/AdminOtp");
@@ -37,6 +42,8 @@ const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioFromNumber = process.env.TWILIO_PHONE_NUMBER;
 const twilioWebhookBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
 const adminNotifyPhone = process.env.ADMIN_NOTIFY_PHONE;
+const adminChatPresenceTtlMs = Number(process.env.ADMIN_CHAT_PRESENCE_TTL_MS || 60000);
+const activeAdminChats = new Map();
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is required");
@@ -209,6 +216,57 @@ async function sendAdminBookingSmsNotification({ booking }) {
   }
 }
 
+function clearExpiredAdminChatPresence() {
+  const now = Date.now();
+  for (const [phone, updatedAt] of activeAdminChats.entries()) {
+    if (now - updatedAt > adminChatPresenceTtlMs) {
+      activeAdminChats.delete(phone);
+    }
+  }
+}
+
+function setAdminActiveChat(phone) {
+  clearExpiredAdminChatPresence();
+  for (const key of activeAdminChats.keys()) {
+    if (key !== phone) {
+      activeAdminChats.delete(key);
+    }
+  }
+
+  if (phone) {
+    activeAdminChats.set(phone, Date.now());
+  }
+}
+
+function clearAdminActiveChat(phone) {
+  clearExpiredAdminChatPresence();
+  if (phone) {
+    activeAdminChats.delete(phone);
+  }
+}
+
+function isAdminViewingChat(phone) {
+  clearExpiredAdminChatPresence();
+  return Boolean(phone && activeAdminChats.has(phone));
+}
+
+async function sendAdminIncomingMessageNotification({ from, customerName, body }) {
+  const to = normalizePhoneNumber(adminNotifyPhone);
+  if (!to) {
+    return;
+  }
+
+  const preview = String(body || "").replace(/\s+/g, " ").trim().slice(0, 120);
+  const label = customerName || from;
+  const text = `New customer text from ${label} (${from}): ${preview}`;
+
+  try {
+    await sendSmsWithTwilio({ to, body: text });
+  } catch (error) {
+    console.error("Failed to send admin inbound SMS notification", error.message || error);
+  }
+}
+
 async function getMessageThreadName(phone) {
   const latestNamedMessage = await Message.findOne({
     customer_phone: phone,
@@ -325,6 +383,15 @@ app.post("/api/twilio/webhook", async (req, res) => {
       twilio_message_sid: req.body.MessageSid || undefined,
       twilio_status: req.body.MessageStatus || undefined,
     });
+
+    if (!isAdminViewingChat(from)) {
+      await sendAdminIncomingMessageNotification({ from, customerName, body });
+      try {
+        await sendAdminInboundMessageEmail({ from, customerName, body });
+      } catch (error) {
+        console.error("Failed to send admin inbound email notification", error.message || error);
+      }
+    }
 
     return res.status(200).type("text/plain").send("OK");
   } catch (error) {
@@ -793,6 +860,31 @@ app.delete("/api/admin/bookings/:id/hard-delete", requireAdmin, async (req, res)
   } catch (error) {
     return res.status(500).json({ error: "Server error" });
   }
+});
+
+app.post("/api/admin/messages/presence", requireAdmin, async (req, res) => {
+  const schema = z.object({
+    customer_phone: z.string().optional().nullable(),
+    is_active: z.boolean().optional().default(true),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
+
+  const phone = normalizePhoneNumber(parsed.data.customer_phone);
+  if (!phone) {
+    return res.json({ ok: true });
+  }
+
+  if (parsed.data.is_active) {
+    setAdminActiveChat(phone);
+  } else {
+    clearAdminActiveChat(phone);
+  }
+
+  return res.json({ ok: true });
 });
 app.listen(port, () => {
   console.log(`Backend listening on ${port}`);

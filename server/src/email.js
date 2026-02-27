@@ -167,4 +167,46 @@ async function sendBookingConfirmedEmail({ booking }) {
   return { sent: true };
 }
 
-module.exports = { sendBookingEmails, sendAdminOtpEmail, sendBookingConfirmedEmail };
+async function sendAdminInboundMessageEmail({ from, customerName, body }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return { skipped: true, reason: "RESEND_API_KEY not set" };
+  }
+
+  const notifyEmail = process.env.ADMIN_NOTIFY_EMAIL || process.env.ADMIN_EMAIL;
+  if (!notifyEmail) {
+    return { skipped: true, reason: "ADMIN_NOTIFY_EMAIL or ADMIN_EMAIL not set" };
+  }
+
+  const fromEmail = process.env.FROM_EMAIL || "Nail Shop <onboarding@resend.dev>";
+  const safePreview = String(body || "").replace(/\s+/g, " ").trim().slice(0, 500);
+  const senderLabel = customerName || "Customer";
+
+  await fetch(RESEND_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: fromEmail,
+      to: notifyEmail,
+      subject: `New customer text from ${senderLabel}`,
+      html: `
+        <h2>New Customer Text Message</h2>
+        <p><strong>From:</strong> ${senderLabel} (${from})</p>
+        <p><strong>Message:</strong></p>
+        <p>${safePreview || "(empty message)"}</p>
+      `,
+    }),
+  });
+
+  return { sent: true };
+}
+
+module.exports = {
+  sendBookingEmails,
+  sendAdminOtpEmail,
+  sendBookingConfirmedEmail,
+  sendAdminInboundMessageEmail,
+};
