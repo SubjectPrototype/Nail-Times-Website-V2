@@ -20,6 +20,7 @@ const AdminOtp = require("./models/AdminOtp");
 const Message = require("./models/Message");
 
 const app = express();
+app.set("trust proxy", true);
 
 const port = process.env.PORT || 4000;
 const clientOrigin = process.env.CLIENT_ORIGIN || "http://localhost:3000";
@@ -44,6 +45,7 @@ const twilioWebhookBaseUrl = process.env.TWILIO_WEBHOOK_BASE_URL;
 const adminNotifyPhone = process.env.ADMIN_NOTIFY_PHONE;
 const adminChatPresenceTtlMs = Number(process.env.ADMIN_CHAT_PRESENCE_TTL_MS || 60000);
 const activeAdminChats = new Map();
+const validateTwilioWebhook = String(process.env.TWILIO_VALIDATE_WEBHOOK || "true").toLowerCase() !== "false";
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is required");
@@ -95,17 +97,45 @@ function getTwilioValidationUrls(req) {
     } else {
       urls.push(`${base}${path.startsWith("/") ? "" : "/"}${path}`);
     }
+
+    if (base.startsWith("http://")) {
+      const httpsBase = `https://${base.slice("http://".length)}`;
+      if (httpsBase.endsWith(path)) {
+        urls.push(httpsBase);
+      } else {
+        urls.push(`${httpsBase}${path.startsWith("/") ? "" : "/"}${path}`);
+      }
+    } else if (base.startsWith("https://")) {
+      const httpBase = `http://${base.slice("https://".length)}`;
+      if (httpBase.endsWith(path)) {
+        urls.push(httpBase);
+      } else {
+        urls.push(`${httpBase}${path.startsWith("/") ? "" : "/"}${path}`);
+      }
+    }
   }
 
-  if (req.protocol && req.get("host")) {
-    urls.push(`${req.protocol}://${req.get("host")}${req.originalUrl || req.path || ""}`);
-    urls.push(`${req.protocol}://${req.get("host")}${req.path || ""}`);
+  const forwardedProto = String(req.get("x-forwarded-proto") || "").split(",")[0].trim();
+  const protocolCandidates = Array.from(
+    new Set([forwardedProto, req.protocol, "https", "http"].filter(Boolean))
+  );
+  const host = req.get("host");
+
+  if (host) {
+    for (const proto of protocolCandidates) {
+      urls.push(`${proto}://${host}${req.originalUrl || req.path || ""}`);
+      urls.push(`${proto}://${host}${req.path || ""}`);
+    }
   }
 
   return Array.from(new Set(urls.filter(Boolean)));
 }
 
 function isValidTwilioWebhook(req) {
+  if (!validateTwilioWebhook) {
+    return true;
+  }
+
   if (!twilioAuthToken || !twilioWebhookBaseUrl) {
     return true;
   }
@@ -424,8 +454,15 @@ app.post("/api/twilio/webhook", async (req, res) => {
       }
     }
 
+    console.log("Twilio inbound message saved", {
+      from,
+      sid: req.body.MessageSid || undefined,
+      notified_admin: !isAdminViewingChat(from),
+    });
+
     return res.status(200).type("text/plain").send("OK");
   } catch (error) {
+    console.error("Twilio webhook processing failed", error);
     return res.status(500).type("text/plain").send("Server error");
   }
 });
