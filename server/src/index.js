@@ -275,10 +275,27 @@ app.use(
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-connectDb().catch((error) => {
-  console.error("Failed to connect to MongoDB", error);
-  process.exit(1);
-});
+async function ensureAppointmentIndexes() {
+  try {
+    const indexes = await Appointment.collection.indexes();
+    const startTimeIndex = indexes.find((index) => index.name === "start_time_1");
+
+    if (startTimeIndex?.unique) {
+      await Appointment.collection.dropIndex("start_time_1");
+      await Appointment.collection.createIndex({ start_time: 1 });
+      console.log("Updated appointments.start_time index to non-unique");
+    }
+  } catch (error) {
+    console.error("Failed to verify appointment indexes:", error.message || error);
+  }
+}
+
+connectDb()
+  .then(() => ensureAppointmentIndexes())
+  .catch((error) => {
+    console.error("Failed to connect to MongoDB", error);
+    process.exit(1);
+  });
 
 app.get("/api/health", (req, res) => {
   res.json({ ok: true });
@@ -765,6 +782,19 @@ app.delete("/api/admin/bookings/:id", requireAdmin, async (req, res) => {
   }
 });
 
+app.delete("/api/admin/bookings/:id/hard-delete", requireAdmin, async (req, res) => {
+  try {
+    const booking = await Appointment.findByIdAndDelete(req.params.id).lean();
+    if (!booking) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    return res.json({ ok: true, deleted_id: booking._id });
+  } catch (error) {
+    return res.status(500).json({ error: "Server error" });
+  }
+});
 app.listen(port, () => {
   console.log(`Backend listening on ${port}`);
 });
+

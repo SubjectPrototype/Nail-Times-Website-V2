@@ -10,6 +10,28 @@ export default function AdminDashboard() {
     process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:4000`;
   const token = localStorage.getItem("adminToken");
 
+  const getBookingEndTimeMs = (booking) => {
+    const endTime = booking.end_time ? new Date(booking.end_time).getTime() : NaN;
+    if (!Number.isNaN(endTime)) {
+      return endTime;
+    }
+
+    const startTime = new Date(booking.start_time).getTime();
+    if (Number.isNaN(startTime)) {
+      return Number.POSITIVE_INFINITY;
+    }
+
+    const minutes = Number(booking.duration_minutes || 60);
+    return startTime + minutes * 60 * 1000;
+  };
+
+  const canDeleteBooking = (booking) => {
+    if (booking.status === "cancelled") {
+      return true;
+    }
+    return getBookingEndTimeMs(booking) < Date.now();
+  };
+
   const loadBookings = async () => {
     setErrorMessage("");
     setIsLoading(true);
@@ -92,6 +114,30 @@ export default function AdminDashboard() {
     }
   };
 
+  const handleDelete = async (id) => {
+    if (!window.confirm("Permanently delete this booking log? This cannot be undone.")) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/admin/bookings/${id}/hard-delete`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to delete booking");
+      }
+
+      setBookings((prev) => prev.filter((item) => item._id !== id));
+    } catch (error) {
+      setErrorMessage(error.message || "Failed to delete booking");
+    }
+  };
+
   return (
     <div className="mx-auto mt-[100px] max-w-[900px] px-4 py-6">
       <div className="flex items-center justify-between">
@@ -155,6 +201,14 @@ export default function AdminDashboard() {
                       onClick={() => handleCancel(booking._id)}
                     >
                       Cancel
+                    </button>
+                  )}
+                  {canDeleteBooking(booking) && (
+                    <button
+                      className="rounded-md border border-[#333] px-3 py-1 text-sm text-[#333]"
+                      onClick={() => handleDelete(booking._id)}
+                    >
+                      Delete
                     </button>
                   )}
                 </div>

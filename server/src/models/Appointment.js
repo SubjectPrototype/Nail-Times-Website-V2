@@ -16,7 +16,7 @@ const appointmentSchema = new mongoose.Schema(
         duration_minutes: { type: Number, min: 1 },
       },
     ],
-    start_time: { type: Date, required: true, index: true, unique: true },
+    start_time: { type: Date, required: true, index: true },
     end_time: { type: Date, required: true, index: true },
     duration_minutes: { type: Number, required: true, min: 1, default: 60 },
     notes: { type: String, trim: true, maxlength: 1000 },
