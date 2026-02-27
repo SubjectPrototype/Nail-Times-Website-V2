@@ -71,7 +71,7 @@ export default function AdminMessages() {
     }
   };
 
-  const loadConversation = async (phone) => {
+  const loadConversation = async (phone, options = {}) => {
     if (!phone) {
       setMessages([]);
       return;
@@ -95,7 +95,9 @@ export default function AdminMessages() {
       setMessages(data.messages || []);
       setSelectedName(data.customer_name || "");
       setNameInput(data.customer_name || "");
-      await loadGroups();
+      if (!options.skipGroupRefresh) {
+        await loadGroups();
+      }
     } catch (error) {
       setErrorMessage(error.message || "Failed to load conversation");
     } finally {
@@ -116,6 +118,28 @@ export default function AdminMessages() {
       return;
     }
     loadConversation(selectedPhone);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, selectedPhone]);
+
+  useEffect(() => {
+    if (!token) {
+      return;
+    }
+
+    const refresh = async () => {
+      await loadGroups();
+      if (selectedPhone) {
+        await loadConversation(selectedPhone, { skipGroupRefresh: true });
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        refresh();
+      }
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, selectedPhone]);
 

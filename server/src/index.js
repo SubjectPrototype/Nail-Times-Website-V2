@@ -162,6 +162,10 @@ function isValidTwilioWebhook(req) {
   return false;
 }
 
+function sendTwilioEmptyResponse(res) {
+  return res.status(200).type("text/xml").send("<Response></Response>");
+}
+
 function requireTwilioCredentials() {
   if (!twilioAccountSid || !twilioAuthToken || !twilioFromNumber) {
     throw new Error("TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER are required");
@@ -433,7 +437,7 @@ app.post("/api/twilio/webhook", async (req, res) => {
     const customerName = existingName || incomingName || undefined;
 
     if (!from || !body) {
-      return res.status(200).type("text/plain").send("OK");
+      return sendTwilioEmptyResponse(res);
     }
 
     await Message.create({
@@ -460,7 +464,7 @@ app.post("/api/twilio/webhook", async (req, res) => {
       notified_admin: !isAdminViewingChat(from),
     });
 
-    return res.status(200).type("text/plain").send("OK");
+    return sendTwilioEmptyResponse(res);
   } catch (error) {
     console.error("Twilio webhook processing failed", error);
     return res.status(500).type("text/plain").send("Server error");
