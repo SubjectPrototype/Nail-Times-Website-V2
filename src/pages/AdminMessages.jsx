@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 export default function AdminMessages() {
   const apiBaseUrl =
     process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:4000`;
+  const pollIntervalMs = Number(process.env.REACT_APP_ADMIN_CHAT_POLL_MS || 2000);
   const token = localStorage.getItem("adminToken");
 
   const [groups, setGroups] = useState([]);
@@ -165,11 +166,11 @@ export default function AdminMessages() {
       if (document.visibilityState === "visible") {
         refresh();
       }
-    }, 5000);
+    }, pollIntervalMs);
 
     return () => window.clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, selectedPhone]);
+  }, [token, selectedPhone, pollIntervalMs]);
 
   useEffect(() => {
     if (!token || !selectedPhone) {
