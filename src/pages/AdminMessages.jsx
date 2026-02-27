@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 export default function AdminMessages() {
@@ -17,6 +17,7 @@ export default function AdminMessages() {
   const [conversationLoading, setConversationLoading] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
   const [savingName, setSavingName] = useState(false);
+  const messageListRef = useRef(null);
 
   const sendPresence = async (phone, isActive) => {
     if (!token || !phone) {
@@ -40,9 +41,11 @@ export default function AdminMessages() {
     }
   };
 
-  const loadGroups = async () => {
-    setGroupsLoading(true);
-    setErrorMessage("");
+  const loadGroups = async (options = {}) => {
+    if (!options.silent) {
+      setGroupsLoading(true);
+      setErrorMessage("");
+    }
 
     try {
       const response = await fetch(`${apiBaseUrl}/api/admin/messages/groups`, {
@@ -67,7 +70,9 @@ export default function AdminMessages() {
     } catch (error) {
       setErrorMessage(error.message || "Failed to load message groups");
     } finally {
-      setGroupsLoading(false);
+      if (!options.silent) {
+        setGroupsLoading(false);
+      }
     }
   };
 
@@ -77,10 +82,19 @@ export default function AdminMessages() {
       return;
     }
 
-    setConversationLoading(true);
-    setErrorMessage("");
+    if (!options.silent) {
+      setConversationLoading(true);
+      setErrorMessage("");
+    }
 
     try {
+      const container = messageListRef.current;
+      const prevScrollTop = container ? container.scrollTop : 0;
+      const prevScrollHeight = container ? container.scrollHeight : 0;
+      const wasNearBottom = container
+        ? prevScrollHeight - (container.scrollTop + container.clientHeight) < 40
+        : false;
+
       const encodedPhone = encodeURIComponent(phone);
       const response = await fetch(`${apiBaseUrl}/api/admin/messages/${encodedPhone}`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -95,13 +109,27 @@ export default function AdminMessages() {
       setMessages(data.messages || []);
       setSelectedName(data.customer_name || "");
       setNameInput(data.customer_name || "");
+      window.requestAnimationFrame(() => {
+        const nextContainer = messageListRef.current;
+        if (!nextContainer) {
+          return;
+        }
+        if (wasNearBottom) {
+          nextContainer.scrollTop = nextContainer.scrollHeight;
+          return;
+        }
+        const heightDelta = nextContainer.scrollHeight - prevScrollHeight;
+        nextContainer.scrollTop = Math.max(0, prevScrollTop + heightDelta);
+      });
       if (!options.skipGroupRefresh) {
-        await loadGroups();
+        await loadGroups({ silent: options.silent });
       }
     } catch (error) {
       setErrorMessage(error.message || "Failed to load conversation");
     } finally {
-      setConversationLoading(false);
+      if (!options.silent) {
+        setConversationLoading(false);
+      }
     }
   };
 
@@ -127,9 +155,9 @@ export default function AdminMessages() {
     }
 
     const refresh = async () => {
-      await loadGroups();
+      await loadGroups({ silent: true });
       if (selectedPhone) {
-        await loadConversation(selectedPhone, { skipGroupRefresh: true });
+        await loadConversation(selectedPhone, { skipGroupRefresh: true, silent: true });
       }
     };
 
@@ -332,7 +360,7 @@ export default function AdminMessages() {
                 </form>
               </div>
 
-              <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+              <div ref={messageListRef} className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
                 {conversationLoading ? (
                   <p className="text-sm text-[#666]">Loading messages...</p>
                 ) : messages.length === 0 ? (
