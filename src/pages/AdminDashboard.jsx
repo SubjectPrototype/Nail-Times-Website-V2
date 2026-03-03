@@ -31,51 +31,28 @@ function statusColorClasses(status) {
   return "bg-amber-100 text-amber-800 border-amber-200";
 }
 
-function getMaxConcurrent(items) {
-  const events = [];
+function groupCalendarItems(items) {
+  const byStart = new Map();
+
   items.forEach((item) => {
-    events.push({ t: item.clampedStart, delta: 1 });
-    events.push({ t: item.clampedEnd, delta: -1 });
-  });
-
-  events.sort((a, b) => {
-    if (a.t !== b.t) return a.t - b.t;
-    return a.delta - b.delta;
-  });
-
-  let active = 0;
-  let max = 1;
-  events.forEach((event) => {
-    active += event.delta;
-    if (active > max) {
-      max = active;
-    }
-  });
-
-  return max;
-}
-
-function assignLanes(items, laneCount) {
-  const active = [];
-  return items.map((item) => {
-    for (let i = active.length - 1; i >= 0; i -= 1) {
-      if (active[i].end <= item.clampedStart) {
-        active.splice(i, 1);
-      }
+    const key = String(item.clampedStart);
+    const existing = byStart.get(key);
+    if (existing) {
+      existing.clampedEnd = Math.max(existing.clampedEnd, item.clampedEnd);
+      existing.start = existing.start < item.start ? existing.start : item.start;
+      existing.bookings.push(item.booking);
+      return;
     }
 
-    const used = new Set(active.map((entry) => entry.lane));
-    let lane = 0;
-    while (lane < laneCount && used.has(lane)) {
-      lane += 1;
-    }
-    if (lane >= laneCount) {
-      lane = laneCount - 1;
-    }
-
-    active.push({ end: item.clampedEnd, lane });
-    return { ...item, lane, laneCount };
+    byStart.set(key, {
+      clampedStart: item.clampedStart,
+      clampedEnd: item.clampedEnd,
+      start: item.start,
+      bookings: [item.booking],
+    });
   });
+
+  return Array.from(byStart.values()).sort((a, b) => a.clampedStart - b.clampedStart);
 }
 
 export default function AdminDashboard() {
@@ -85,7 +62,7 @@ export default function AdminDashboard() {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [highlightedBookingId, setHighlightedBookingId] = useState("");
   const [mobileDay, setMobileDay] = useState(() => startOfDay(new Date()));
-  const [mobileModalBookingId, setMobileModalBookingId] = useState("");
+  const [mobileModalBookingIds, setMobileModalBookingIds] = useState([]);
   const cardRefs = useRef(new Map());
 
   const apiBaseUrl =
@@ -203,8 +180,8 @@ export default function AdminDashboard() {
 
       const data = await response.json();
       setBookings((prev) => prev.map((item) => (item._id === id ? data.booking : item)));
-      if (mobileModalBookingId === id) {
-        setMobileModalBookingId("");
+      if (mobileModalBookingIds.includes(id)) {
+        setMobileModalBookingIds([]);
       }
     } catch (error) {
       setErrorMessage(error.message || "Failed to cancel booking");
@@ -251,8 +228,8 @@ export default function AdminDashboard() {
       }
 
       setBookings((prev) => prev.filter((item) => item._id !== id));
-      if (mobileModalBookingId === id) {
-        setMobileModalBookingId("");
+      if (mobileModalBookingIds.includes(id)) {
+        setMobileModalBookingIds([]);
       }
     } catch (error) {
       setErrorMessage(error.message || "Failed to delete booking");
@@ -296,10 +273,7 @@ export default function AdminDashboard() {
       items.sort((a, b) => a.clampedStart - b.clampedStart || a.booking.customer_name.localeCompare(b.booking.customer_name))
     );
 
-    return grouped.map((items) => {
-      const laneCount = Math.max(1, getMaxConcurrent(items));
-      return assignLanes(items, laneCount);
-    });
+    return grouped.map((items) => groupCalendarItems(items));
   }, [bookings, weekEnd, weekStart]);
 
   const weekRangeLabel = `${weekStart.toLocaleDateString("en-US", {
@@ -344,13 +318,12 @@ export default function AdminDashboard() {
     });
 
     items.sort((a, b) => a.clampedStart - b.clampedStart || a.booking.customer_name.localeCompare(b.booking.customer_name));
-    const laneCount = Math.max(1, getMaxConcurrent(items));
-    return assignLanes(items, laneCount);
+    return groupCalendarItems(items);
   }, [bookings, mobileDay, mobileDayEnd]);
 
-  const mobileModalBooking = useMemo(
-    () => bookings.find((booking) => booking._id === mobileModalBookingId) || null,
-    [bookings, mobileModalBookingId]
+  const mobileModalBookings = useMemo(
+    () => bookings.filter((booking) => mobileModalBookingIds.includes(booking._id)),
+    [bookings, mobileModalBookingIds]
   );
 
   useEffect(() => {
@@ -363,13 +336,15 @@ export default function AdminDashboard() {
   }, [highlightedBookingId]);
 
   useEffect(() => {
-    if (!mobileModalBookingId) {
+    if (mobileModalBookingIds.length === 0) {
       return;
     }
-    if (!mobileModalBooking) {
-      setMobileModalBookingId("");
+
+    const allStillExist = mobileModalBookingIds.every((id) => bookings.some((booking) => booking._id === id));
+    if (!allStillExist) {
+      setMobileModalBookingIds([]);
     }
-  }, [mobileModalBooking, mobileModalBookingId]);
+  }, [bookings, mobileModalBookingIds]);
 
   return (
     <div className="mx-auto mt-[100px] max-w-[1500px] px-4 py-6">
@@ -538,33 +513,35 @@ export default function AdminDashboard() {
                       />
                     );
                   })}
-                  {mobileBookings.map(({ booking, start, clampedStart, clampedEnd, lane, laneCount }) => {
+                  {mobileBookings.map(({ bookings: slotBookings, start, clampedStart, clampedEnd }) => {
+                    const primaryBooking = slotBookings[0];
                     const topPct = ((clampedStart - CALENDAR_START_HOUR * 60) / CALENDAR_TOTAL_MINUTES) * 100;
                     const heightPct = Math.max(((clampedEnd - clampedStart) / CALENDAR_TOTAL_MINUTES) * 100, 3);
-                    const widthPct = 100 / laneCount;
-                    const leftPct = lane * widthPct;
                     const cardColors =
-                      booking.status === "confirmed"
+                      primaryBooking.status === "confirmed"
                         ? "border-green-300 bg-green-50"
-                        : booking.status === "cancelled"
+                        : primaryBooking.status === "cancelled"
                           ? "border-gray-300 bg-gray-100"
                           : "border-[#c7668b]/40 bg-[#fff1f6]";
                     return (
                       <button
-                        key={`mobile-week-${booking._id}`}
+                        key={`mobile-week-${slotBookings.map((item) => item._id).join("-")}`}
                         type="button"
                         className={`absolute overflow-hidden rounded-md border px-2 py-1 text-left text-xs shadow-sm ${cardColors}`}
                         style={{
                           top: `${topPct}%`,
                           height: `${heightPct}%`,
-                          left: `calc(${leftPct}% + 4px)`,
-                          width: `calc(${widthPct}% - 8px)`,
+                          left: "4px",
+                          width: "calc(100% - 8px)",
                         }}
-                        onClick={() => setMobileModalBookingId(booking._id)}
+                        onClick={() => setMobileModalBookingIds(slotBookings.map((item) => item._id))}
                       >
-                        <p className="truncate font-semibold text-[#333]">{booking.customer_name}</p>
+                        <p className="truncate font-semibold text-[#333]">
+                          {slotBookings.length > 1 ? `${slotBookings.length} bookings` : primaryBooking.customer_name}
+                        </p>
                         <p className="truncate text-[#555]">
-                          {start.toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })} - {booking.duration_minutes || 60}m
+                          {start.toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })} -{" "}
+                          {slotBookings.length > 1 ? "tap for details" : `${primaryBooking.duration_minutes || 60}m`}
                         </p>
                       </button>
                     );
@@ -649,41 +626,44 @@ export default function AdminDashboard() {
                           );
                         })}
 
-                        {weekBookingsByDay[dayIndex].map(({ booking, start, clampedStart, clampedEnd, lane, laneCount }) => {
+                        {weekBookingsByDay[dayIndex].map(({ bookings: slotBookings, start, clampedStart, clampedEnd }) => {
+                          const primaryBooking = slotBookings[0];
                           const topPct = ((clampedStart - CALENDAR_START_HOUR * 60) / CALENDAR_TOTAL_MINUTES) * 100;
                           const heightPct = Math.max(((clampedEnd - clampedStart) / CALENDAR_TOTAL_MINUTES) * 100, 2.5);
-                          const widthPct = 100 / laneCount;
-                          const leftPct = lane * widthPct;
 
-                          const faded = booking.status === "cancelled" ? "opacity-60" : "";
+                          const faded = primaryBooking.status === "cancelled" ? "opacity-60" : "";
                           const cardColors =
-                            booking.status === "confirmed"
+                            primaryBooking.status === "confirmed"
                               ? "border-green-300 bg-green-50"
-                              : booking.status === "cancelled"
+                              : primaryBooking.status === "cancelled"
                                 ? "border-gray-300 bg-gray-100"
                                 : "border-[#c7668b]/40 bg-[#fff1f6]";
+                          const slotIds = slotBookings.map((item) => item._id);
 
                           return (
                             <div
-                              key={`week-${booking._id}`}
+                              key={`week-${slotIds.join("-")}`}
                               className={`absolute cursor-pointer overflow-hidden rounded-md border px-2 py-1 text-xs shadow-sm transition ${cardColors} ${faded} ${
-                                highlightedBookingId === booking._id ? "ring-2 ring-[#c7668b]" : ""
+                                highlightedBookingId && slotIds.includes(highlightedBookingId) ? "ring-2 ring-[#c7668b]" : ""
                               }`}
                               style={{
                                 top: `${topPct}%`,
                                 height: `${heightPct}%`,
-                                left: `calc(${leftPct}% + 4px)`,
-                                width: `calc(${widthPct}% - 8px)`,
+                                left: "4px",
+                                width: "calc(100% - 8px)",
                               }}
-                              title={`${booking.customer_name} - ${new Date(booking.start_time).toLocaleString("en-US", {
+                              title={`${slotBookings.length > 1 ? `${slotBookings.length} bookings` : primaryBooking.customer_name} - ${new Date(primaryBooking.start_time).toLocaleString("en-US", {
                                 hour: "numeric",
                                 minute: "2-digit",
                               })}`}
-                              onClick={() => focusBookingCard(booking._id)}
+                              onClick={() => focusBookingCard(primaryBooking._id)}
                             >
-                              <p className="truncate font-semibold text-[#333]">{booking.customer_name}</p>
+                              <p className="truncate font-semibold text-[#333]">
+                                {slotBookings.length > 1 ? `${slotBookings.length} bookings` : primaryBooking.customer_name}
+                              </p>
                               <p className="truncate text-[#555]">
-                                {start.toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })} - {booking.duration_minutes || 60}m
+                                {start.toLocaleString("en-US", { hour: "numeric", minute: "2-digit" })} -{" "}
+                                {slotBookings.length > 1 ? "multiple technicians" : `${primaryBooking.duration_minutes || 60}m`}
                               </p>
                             </div>
                           );
@@ -698,50 +678,55 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {mobileModalBooking && (
+      {mobileModalBookings.length > 0 && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 p-4 md:hidden">
           <div className="max-h-[85vh] w-full max-w-[380px] overflow-y-auto rounded-lg bg-white p-4 shadow-xl">
             <div className="flex items-start justify-between gap-3">
-              <h3 className="text-lg font-semibold text-[#333]">Booking Details</h3>
+              <h3 className="text-lg font-semibold text-[#333]">
+                {mobileModalBookings.length > 1 ? "Booking Details (Grouped)" : "Booking Details"}
+              </h3>
               <button
                 type="button"
                 className="rounded-md border border-[#ccc] px-2 py-1 text-sm"
-                onClick={() => setMobileModalBookingId("")}
+                onClick={() => setMobileModalBookingIds([])}
               >
                 Close
               </button>
             </div>
-            <div className="mt-3 space-y-2 text-sm text-[#555]">
-              <p className="text-base font-semibold text-[#333]">{mobileModalBooking.customer_name}</p>
-              <p>{mobileModalBooking.customer_email}</p>
-              {mobileModalBooking.customer_phone && <p>{mobileModalBooking.customer_phone}</p>}
-              <p>
-                {new Date(mobileModalBooking.start_time).toLocaleString("en-US", {
-                  year: "numeric",
-                  month: "numeric",
-                  day: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}
-              </p>
-              <p>Duration: {mobileModalBooking.duration_minutes || 60} min</p>
-              <p>Service: {mobileModalBooking.service}</p>
-              <p>
-                Status: <span className="font-semibold text-[#333]">{mobileModalBooking.status || "pending"}</span>
-              </p>
-              {mobileModalBooking.notes && <p>Notes: {mobileModalBooking.notes}</p>}
-              {Array.isArray(mobileModalBooking.selected_services) &&
-                mobileModalBooking.selected_services.length > 0 && (
-                  <div>
-                    <p className="font-medium text-[#333]">Selected Services</p>
-                    {mobileModalBooking.selected_services.map((item, idx) => (
-                      <p key={`mobile-modal-svc-${idx}`}>
-                        {item.name} - {item.duration_minutes || "?"} min
-                        {item.technician ? ` (Tech: ${item.technician})` : ""}
-                      </p>
-                    ))}
-                  </div>
-                )}
+            <div className="mt-3 space-y-3 text-sm text-[#555]">
+              {mobileModalBookings.map((booking) => (
+                <div key={`mobile-modal-${booking._id}`} className="rounded-md border border-[#eee] p-3">
+                  <p className="text-base font-semibold text-[#333]">{booking.customer_name}</p>
+                  <p>{booking.customer_email}</p>
+                  {booking.customer_phone && <p>{booking.customer_phone}</p>}
+                  <p>
+                    {new Date(booking.start_time).toLocaleString("en-US", {
+                      year: "numeric",
+                      month: "numeric",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                  <p>Duration: {booking.duration_minutes || 60} min</p>
+                  <p>Service: {booking.service}</p>
+                  <p>
+                    Status: <span className="font-semibold text-[#333]">{booking.status || "pending"}</span>
+                  </p>
+                  {booking.notes && <p>Notes: {booking.notes}</p>}
+                  {Array.isArray(booking.selected_services) && booking.selected_services.length > 0 && (
+                    <div>
+                      <p className="font-medium text-[#333]">Selected Services</p>
+                      {booking.selected_services.map((item, idx) => (
+                        <p key={`mobile-modal-svc-${booking._id}-${idx}`}>
+                          {item.name} - {item.duration_minutes || "?"} min
+                          {item.technician ? ` (Tech: ${item.technician})` : ""}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>
