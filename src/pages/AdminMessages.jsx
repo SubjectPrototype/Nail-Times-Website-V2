@@ -22,6 +22,8 @@ export default function AdminMessages() {
   const [newContactName, setNewContactName] = useState("");
   const [newContactPhone, setNewContactPhone] = useState("");
   const [openingMediaKey, setOpeningMediaKey] = useState("");
+  const [mediaPreviewUrls, setMediaPreviewUrls] = useState({});
+  const mediaPreviewUrlsRef = useRef({});
   const messageListRef = useRef(null);
   const messageEndRef = useRef(null);
   const nameInputRef = useRef(null);
@@ -425,6 +427,42 @@ export default function AdminMessages() {
     }
   };
 
+  const handleLoadMediaPreview = async (messageId, mediaIndex) => {
+    const mediaKey = `${messageId}-${mediaIndex}`;
+    if (mediaPreviewUrls[mediaKey]) {
+      return;
+    }
+
+    setOpeningMediaKey(mediaKey);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/admin/messages/media/${messageId}/${mediaIndex}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to load attachment");
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      setMediaPreviewUrls((prev) => ({ ...prev, [mediaKey]: objectUrl }));
+    } catch (error) {
+      setErrorMessage(error.message || "Failed to load attachment");
+    } finally {
+      setOpeningMediaKey("");
+    }
+  };
+
+  useEffect(() => {
+    mediaPreviewUrlsRef.current = mediaPreviewUrls;
+  }, [mediaPreviewUrls]);
+
+  useEffect(() => {
+    return () => {
+      Object.values(mediaPreviewUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, []);
+
   return (
     <div className="mx-auto mt-[100px] max-w-[1100px] px-4 py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -555,20 +593,43 @@ export default function AdminMessages() {
                         <div className="mt-2 space-y-1">
                           {message.media.map((item, mediaIndex) => {
                             const mediaKey = `${message._id}-${mediaIndex}`;
+                            const previewUrl = mediaPreviewUrls[mediaKey];
+                            const isImage = String(item.content_type || "").toLowerCase().startsWith("image/");
                             return (
-                              <button
-                                key={mediaKey}
-                                type="button"
-                                className={`block underline ${message.direction === "outbound" ? "text-white" : "text-[#444]"}`}
-                                onClick={() => handleOpenMedia(message._id, mediaIndex)}
-                                disabled={openingMediaKey === mediaKey}
-                              >
-                                {openingMediaKey === mediaKey
-                                  ? `Opening attachment ${mediaIndex + 1}...`
-                                  : `Open attachment ${mediaIndex + 1}${
-                                      item.content_type ? ` (${item.content_type})` : ""
-                                    }`}
-                              </button>
+                              <div key={mediaKey} className="space-y-1">
+                                {isImage && previewUrl ? (
+                                  <button type="button" onClick={() => window.open(previewUrl, "_blank", "noopener,noreferrer")}>
+                                    <img
+                                      src={previewUrl}
+                                      alt={`Attachment ${mediaIndex + 1}`}
+                                      className="max-h-40 rounded-md border border-white/40 object-cover"
+                                    />
+                                  </button>
+                                ) : isImage ? (
+                                  <button
+                                    type="button"
+                                    className={`block underline ${message.direction === "outbound" ? "text-white" : "text-[#444]"}`}
+                                    onClick={() => handleLoadMediaPreview(message._id, mediaIndex)}
+                                    disabled={openingMediaKey === mediaKey}
+                                  >
+                                    {openingMediaKey === mediaKey
+                                      ? `Loading preview ${mediaIndex + 1}...`
+                                      : `Load image preview ${mediaIndex + 1}`}
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className={`block underline ${message.direction === "outbound" ? "text-white" : "text-[#444]"}`}
+                                  onClick={() => handleOpenMedia(message._id, mediaIndex)}
+                                  disabled={openingMediaKey === mediaKey}
+                                >
+                                  {openingMediaKey === mediaKey
+                                    ? `Opening attachment ${mediaIndex + 1}...`
+                                    : `Open attachment ${mediaIndex + 1}${
+                                        item.content_type ? ` (${item.content_type})` : ""
+                                      }`}
+                                </button>
+                              </div>
                             );
                           })}
                         </div>
