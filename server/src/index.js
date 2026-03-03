@@ -769,6 +769,8 @@ app.post("/api/bookings", async (req, res) => {
 
 app.get("/api/bookings/availability", async (req, res) => {
   const date = req.query.date;
+  const dayStartUtcInput = String(req.query.day_start_utc || "").trim();
+  const dayEndUtcInput = String(req.query.day_end_utc || "").trim();
   const requestedTechnicians = String(req.query.technicians || "")
     .split(",")
     .map((item) => item.trim())
@@ -778,12 +780,21 @@ app.get("/api/bookings/availability", async (req, res) => {
   }
 
   try {
-    const dayStart = new Date(`${date}T00:00:00`);
-    if (Number.isNaN(dayStart.getTime())) {
-      return res.status(400).json({ error: "Invalid date. Use YYYY-MM-DD" });
+    let dayStart = new Date(`${date}T00:00:00`);
+    let dayEnd = new Date(`${date}T23:59:59.999`);
+
+    if (dayStartUtcInput && dayEndUtcInput) {
+      const parsedStart = new Date(dayStartUtcInput);
+      const parsedEnd = new Date(dayEndUtcInput);
+      if (!Number.isNaN(parsedStart.getTime()) && !Number.isNaN(parsedEnd.getTime()) && parsedEnd > parsedStart) {
+        dayStart = parsedStart;
+        dayEnd = parsedEnd;
+      }
     }
 
-    const dayEnd = new Date(`${date}T23:59:59.999`);
+    if (Number.isNaN(dayStart.getTime()) || Number.isNaN(dayEnd.getTime())) {
+      return res.status(400).json({ error: "Invalid date. Use YYYY-MM-DD" });
+    }
 
     const appointments = await Appointment.aggregate([
       {

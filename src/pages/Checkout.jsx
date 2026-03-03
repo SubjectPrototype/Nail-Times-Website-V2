@@ -166,8 +166,10 @@ export default function Checkout() {
       try {
         const technicianParam =
           selectedTechnicians.length > 0 ? `&technicians=${encodeURIComponent(selectedTechnicians.join(","))}` : "";
+        const dayStartUtc = encodeURIComponent(new Date(`${selectedDate}T00:00:00`).toISOString());
+        const dayEndUtc = encodeURIComponent(new Date(`${selectedDate}T23:59:59.999`).toISOString());
         const response = await fetch(
-          `${apiBaseUrl}/api/bookings/availability?date=${encodeURIComponent(selectedDate)}${technicianParam}`
+          `${apiBaseUrl}/api/bookings/availability?date=${encodeURIComponent(selectedDate)}&day_start_utc=${dayStartUtc}&day_end_utc=${dayEndUtc}${technicianParam}`
         );
         if (!response.ok) {
           throw new Error("Failed to load availability");
