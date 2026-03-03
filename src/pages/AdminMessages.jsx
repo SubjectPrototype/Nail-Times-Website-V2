@@ -24,6 +24,7 @@ export default function AdminMessages() {
   const [openingMediaKey, setOpeningMediaKey] = useState("");
   const [mediaPreviewUrls, setMediaPreviewUrls] = useState({});
   const mediaPreviewUrlsRef = useRef({});
+  const loadingPreviewKeysRef = useRef(new Set());
   const messageListRef = useRef(null);
   const messageEndRef = useRef(null);
   const nameInputRef = useRef(null);
@@ -427,29 +428,25 @@ export default function AdminMessages() {
     }
   };
 
-  const handleLoadMediaPreview = async (messageId, mediaIndex) => {
+  const ensureMediaPreview = async (messageId, mediaIndex) => {
     const mediaKey = `${messageId}-${mediaIndex}`;
-    if (mediaPreviewUrls[mediaKey]) {
+    if (mediaPreviewUrlsRef.current[mediaKey] || loadingPreviewKeysRef.current.has(mediaKey)) {
       return;
     }
 
-    setOpeningMediaKey(mediaKey);
+    loadingPreviewKeysRef.current.add(mediaKey);
     try {
       const response = await fetch(`${apiBaseUrl}/api/admin/messages/media/${messageId}/${mediaIndex}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to load attachment");
+        return;
       }
-
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
       setMediaPreviewUrls((prev) => ({ ...prev, [mediaKey]: objectUrl }));
-    } catch (error) {
-      setErrorMessage(error.message || "Failed to load attachment");
     } finally {
-      setOpeningMediaKey("");
+      loadingPreviewKeysRef.current.delete(mediaKey);
     }
   };
 
@@ -462,6 +459,25 @@ export default function AdminMessages() {
       Object.values(mediaPreviewUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
     };
   }, []);
+
+  useEffect(() => {
+    if (!token || messages.length === 0) {
+      return;
+    }
+
+    messages.forEach((message) => {
+      if (!Array.isArray(message.media)) {
+        return;
+      }
+      message.media.forEach((item, mediaIndex) => {
+        const isImage = String(item?.content_type || "").toLowerCase().startsWith("image/");
+        if (isImage) {
+          ensureMediaPreview(message._id, mediaIndex);
+        }
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, token, apiBaseUrl]);
 
   return (
     <div className="mx-auto mt-[100px] max-w-[1100px] px-4 py-6">
@@ -606,16 +622,9 @@ export default function AdminMessages() {
                                     />
                                   </button>
                                 ) : isImage ? (
-                                  <button
-                                    type="button"
-                                    className={`block underline ${message.direction === "outbound" ? "text-white" : "text-[#444]"}`}
-                                    onClick={() => handleLoadMediaPreview(message._id, mediaIndex)}
-                                    disabled={openingMediaKey === mediaKey}
-                                  >
-                                    {openingMediaKey === mediaKey
-                                      ? `Loading preview ${mediaIndex + 1}...`
-                                      : `Load image preview ${mediaIndex + 1}`}
-                                  </button>
+                                  <p className={`${message.direction === "outbound" ? "text-white/80" : "text-[#666]"}`}>
+                                    Loading image preview...
+                                  </p>
                                 ) : null}
                                 <button
                                   type="button"
