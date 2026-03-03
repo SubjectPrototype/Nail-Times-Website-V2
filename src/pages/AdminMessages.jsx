@@ -93,9 +93,9 @@ export default function AdminMessages() {
       const container = messageListRef.current;
       const prevScrollTop = container ? container.scrollTop : 0;
       const prevScrollHeight = container ? container.scrollHeight : 0;
-      const wasNearBottom = container
+      const wasNearBottom = options.forceScrollBottom || (container
         ? prevScrollHeight - (container.scrollTop + container.clientHeight) < 40
-        : false;
+        : false);
 
       const encodedPhone = encodeURIComponent(phone);
       const response = await fetch(`${apiBaseUrl}/api/admin/messages/${encodedPhone}`, {
@@ -252,7 +252,11 @@ export default function AdminMessages() {
       }
 
       await loadGroups({ silent: true });
-      await loadConversation(selectedPhone, { silent: true, skipGroupRefresh: true });
+      await loadConversation(selectedPhone, {
+        silent: true,
+        skipGroupRefresh: true,
+        forceScrollBottom: true,
+      });
     } catch (error) {
       setErrorMessage(error.message || "Failed to send message");
     } finally {
