@@ -21,6 +21,7 @@ export default function AdminMessages() {
   const [addingContact, setAddingContact] = useState(false);
   const [newContactName, setNewContactName] = useState("");
   const [newContactPhone, setNewContactPhone] = useState("");
+  const [openingMediaKey, setOpeningMediaKey] = useState("");
   const messageListRef = useRef(null);
   const messageEndRef = useRef(null);
   const nameInputRef = useRef(null);
@@ -401,6 +402,29 @@ export default function AdminMessages() {
     }
   };
 
+  const handleOpenMedia = async (messageId, mediaIndex) => {
+    const mediaKey = `${messageId}-${mediaIndex}`;
+    setOpeningMediaKey(mediaKey);
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/admin/messages/media/${messageId}/${mediaIndex}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to load attachment");
+      }
+
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      window.open(objectUrl, "_blank", "noopener,noreferrer");
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+    } catch (error) {
+      setErrorMessage(error.message || "Failed to load attachment");
+    } finally {
+      setOpeningMediaKey("");
+    }
+  };
+
   return (
     <div className="mx-auto mt-[100px] max-w-[1100px] px-4 py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -527,6 +551,28 @@ export default function AdminMessages() {
                       }`}
                     >
                       <p>{message.body}</p>
+                      {Array.isArray(message.media) && message.media.length > 0 && (
+                        <div className="mt-2 space-y-1">
+                          {message.media.map((item, mediaIndex) => {
+                            const mediaKey = `${message._id}-${mediaIndex}`;
+                            return (
+                              <button
+                                key={mediaKey}
+                                type="button"
+                                className={`block underline ${message.direction === "outbound" ? "text-white" : "text-[#444]"}`}
+                                onClick={() => handleOpenMedia(message._id, mediaIndex)}
+                                disabled={openingMediaKey === mediaKey}
+                              >
+                                {openingMediaKey === mediaKey
+                                  ? `Opening attachment ${mediaIndex + 1}...`
+                                  : `Open attachment ${mediaIndex + 1}${
+                                      item.content_type ? ` (${item.content_type})` : ""
+                                    }`}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                       <p
                         className={`mt-1 text-[11px] ${
                           message.direction === "outbound" ? "text-white/80" : "text-[#777]"

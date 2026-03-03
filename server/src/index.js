@@ -168,6 +168,26 @@ function sendTwilioEmptyResponse(res) {
   return res.status(200).type("text/xml").send("<Response></Response>");
 }
 
+function parseTwilioMedia(body) {
+  const count = Number(body?.NumMedia || 0);
+  if (!Number.isFinite(count) || count <= 0) {
+    return [];
+  }
+
+  const media = [];
+  for (let i = 0; i < count; i += 1) {
+    const url = String(body?.[`MediaUrl${i}`] || "").trim();
+    if (!url) {
+      continue;
+    }
+    media.push({
+      url,
+      content_type: String(body?.[`MediaContentType${i}`] || "").trim() || undefined,
+    });
+  }
+  return media;
+}
+
 function requireTwilioCredentials() {
   if (!twilioAccountSid || !twilioAuthToken || !twilioFromNumber) {
     throw new Error("TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, and TWILIO_PHONE_NUMBER are required");
@@ -536,7 +556,9 @@ app.post("/api/twilio/webhook", async (req, res) => {
 
   try {
     const from = normalizePhoneNumber(req.body.From);
-    const body = String(req.body.Body || "").trim();
+    const textBody = String(req.body.Body || "").trim();
+    const media = parseTwilioMedia(req.body);
+    const body = textBody || (media.length > 0 ? `[Media message: ${media.length} attachment${media.length > 1 ? "s" : ""}]` : "");
     const incomingName = String(req.body.ProfileName || req.body.FromCity || "").trim();
     const existingName = from ? await getThreadName(from) : "";
     const customerName = existingName || incomingName || undefined;
@@ -550,6 +572,7 @@ app.post("/api/twilio/webhook", async (req, res) => {
       customer_name: customerName,
       direction: "inbound",
       body,
+      media,
       twilio_message_sid: req.body.MessageSid || undefined,
       twilio_status: req.body.MessageStatus || undefined,
     });
@@ -938,6 +961,45 @@ app.get("/api/admin/messages/groups", requireAdmin, async (req, res) => {
     response.sort((a, b) => new Date(b.latest_message_at).getTime() - new Date(a.latest_message_at).getTime());
 
     return res.json(response);
+  } catch (error) {
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/admin/messages/media/:id/:index", requireAdmin, async (req, res) => {
+  try {
+    const { id, index } = req.params;
+    const itemIndex = Number(index);
+    if (!Number.isInteger(itemIndex) || itemIndex < 0) {
+      return res.status(400).json({ error: "Invalid media index" });
+    }
+
+    const message = await Message.findById(id).lean();
+    if (!message) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    const media = Array.isArray(message.media) ? message.media[itemIndex] : null;
+    if (!media?.url) {
+      return res.status(404).json({ error: "Media not found" });
+    }
+
+    requireTwilioCredentials();
+    const auth = Buffer.from(`${twilioAccountSid}:${twilioAuthToken}`).toString("base64");
+    const mediaResponse = await fetch(media.url, {
+      headers: {
+        Authorization: `Basic ${auth}`,
+      },
+    });
+
+    if (!mediaResponse.ok) {
+      return res.status(502).json({ error: "Failed to fetch media" });
+    }
+
+    const contentType = mediaResponse.headers.get("content-type") || media.content_type || "application/octet-stream";
+    const bytes = Buffer.from(await mediaResponse.arrayBuffer());
+    res.setHeader("Content-Type", contentType);
+    return res.status(200).send(bytes);
   } catch (error) {
     return res.status(500).json({ error: "Server error" });
   }

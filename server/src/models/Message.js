@@ -6,6 +6,12 @@ const messageSchema = new mongoose.Schema(
     customer_name: { type: String, trim: true, maxlength: 120 },
     direction: { type: String, enum: ["inbound", "outbound"], required: true, index: true },
     body: { type: String, required: true, trim: true, maxlength: 5000 },
+    media: [
+      {
+        url: { type: String, trim: true, maxlength: 2000 },
+        content_type: { type: String, trim: true, maxlength: 200 },
+      },
+    ],
     twilio_message_sid: { type: String, trim: true, sparse: true, index: true },
     twilio_status: { type: String, trim: true },
     read_at: { type: Date },
