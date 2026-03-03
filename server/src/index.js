@@ -46,6 +46,7 @@ const adminNotifyPhone = process.env.ADMIN_NOTIFY_PHONE;
 const adminChatPresenceTtlMs = Number(process.env.ADMIN_CHAT_PRESENCE_TTL_MS || 60000);
 const activeAdminChats = new Map();
 const validateTwilioWebhook = String(process.env.TWILIO_VALIDATE_WEBHOOK || "true").toLowerCase() !== "false";
+const technicianPoolSize = Number(process.env.TECHNICIAN_POOL_SIZE || 6);
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is required");
@@ -219,6 +220,103 @@ function toServiceSummary(booking) {
     return booking.selected_services.map((item) => item.name).join(", ");
   }
   return booking.service || "your service";
+}
+
+function getRequestedTechnicians(selectedServices) {
+  if (!Array.isArray(selectedServices)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      selectedServices
+        .map((item) => String(item?.technician || "").trim())
+        .filter((name) => name && name.toLowerCase() !== "any")
+    )
+  );
+}
+
+function getBookingTechnicians(selectedServices) {
+  if (!Array.isArray(selectedServices)) {
+    return [];
+  }
+
+  return Array.from(
+    new Set(
+      selectedServices
+        .map((item) => String(item?.technician || "").trim())
+        .filter(Boolean)
+    )
+  );
+}
+
+function bookingHasAnyTechnician(selectedServices) {
+  return getBookingTechnicians(selectedServices).some((name) => name.toLowerCase() === "any");
+}
+
+function bookingHasNoTechnicianInfo(selectedServices) {
+  return !Array.isArray(selectedServices) || selectedServices.length === 0;
+}
+
+function overlapsSpecificTechnician(existingSelectedServices, requestedTechnicians) {
+  if (!Array.isArray(requestedTechnicians) || requestedTechnicians.length === 0) {
+    return false;
+  }
+
+  if (bookingHasNoTechnicianInfo(existingSelectedServices) || bookingHasAnyTechnician(existingSelectedServices)) {
+    return true;
+  }
+
+  const existingTechnicians = getBookingTechnicians(existingSelectedServices).map((name) => name.toLowerCase());
+  return requestedTechnicians.some((name) => existingTechnicians.includes(String(name).toLowerCase()));
+}
+
+function buildAtCapacityRanges(appointments, windowStart, windowEnd, capacity) {
+  const events = [];
+  appointments.forEach((appointment) => {
+    const start = new Date(appointment.start_time);
+    const end = new Date(appointment.effective_end_time || appointment.end_time);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= windowStart || start >= windowEnd) {
+      return;
+    }
+
+    const clippedStart = start > windowStart ? start : windowStart;
+    const clippedEnd = end < windowEnd ? end : windowEnd;
+    events.push({ t: clippedStart, delta: 1 });
+    events.push({ t: clippedEnd, delta: -1 });
+  });
+
+  events.sort((a, b) => {
+    const diff = a.t.getTime() - b.t.getTime();
+    if (diff !== 0) return diff;
+    return a.delta - b.delta;
+  });
+
+  const ranges = [];
+  let active = 0;
+  let prev = windowStart;
+  let i = 0;
+  while (i < events.length) {
+    const currentTime = events[i].t;
+    if (currentTime > prev && active >= capacity) {
+      ranges.push({ start_time: new Date(prev), end_time: new Date(currentTime) });
+    }
+
+    let deltaSum = 0;
+    while (i < events.length && events[i].t.getTime() === currentTime.getTime()) {
+      deltaSum += events[i].delta;
+      i += 1;
+    }
+
+    active += deltaSum;
+    prev = currentTime;
+  }
+
+  if (windowEnd > prev && active >= capacity) {
+    ranges.push({ start_time: new Date(prev), end_time: new Date(windowEnd) });
+  }
+
+  return ranges;
 }
 
 async function logOutboundSms({ booking, body, twilioSid, twilioStatus }) {
@@ -592,11 +690,11 @@ app.post("/api/bookings", async (req, res) => {
       return res.status(400).json({ error: "Invalid start time" });
     }
 
+    const requestedTechnicians = getRequestedTechnicians(booking.selected_services);
     const requestedDurationMinutes = Number(booking.duration_minutes || defaultAppointmentMinutes);
     const endTime = new Date(startTime.getTime() + requestedDurationMinutes * 60 * 1000);
 
-    // Block any overlap where existing.start < requested.end and existing.end > requested.start.
-    const overlap = await Appointment.aggregate([
+    const overlaps = await Appointment.aggregate([
       {
         $addFields: {
           effective_end_time: {
@@ -620,12 +718,28 @@ app.post("/api/bookings", async (req, res) => {
           effective_end_time: { $gt: startTime },
         },
       },
-      { $limit: 1 },
-      { $project: { _id: 1 } },
+      {
+        $project: {
+          _id: 1,
+          start_time: 1,
+          end_time: "$effective_end_time",
+          selected_services: 1,
+        },
+      },
     ]);
 
-    if (overlap.length > 0) {
-      return res.status(409).json({ error: "Time slot overlaps with another appointment" });
+    if (requestedTechnicians.length > 0) {
+      const hasSpecificConflict = overlaps.some((item) =>
+        overlapsSpecificTechnician(item.selected_services, requestedTechnicians)
+      );
+      if (hasSpecificConflict) {
+        return res.status(409).json({ error: "Time slot overlaps with another appointment" });
+      }
+    } else {
+      const atCapacityRanges = buildAtCapacityRanges(overlaps, startTime, endTime, technicianPoolSize);
+      if (atCapacityRanges.length > 0) {
+        return res.status(409).json({ error: "Time slot overlaps with another appointment" });
+      }
     }
 
     const created = await Appointment.create({
@@ -655,6 +769,10 @@ app.post("/api/bookings", async (req, res) => {
 
 app.get("/api/bookings/availability", async (req, res) => {
   const date = req.query.date;
+  const requestedTechnicians = String(req.query.technicians || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return res.status(400).json({ error: "Invalid date. Use YYYY-MM-DD" });
   }
@@ -698,12 +816,32 @@ app.get("/api/bookings/availability", async (req, res) => {
           end_time: "$effective_end_time",
           duration_minutes: { $ifNull: ["$duration_minutes", defaultAppointmentMinutes] },
           status: 1,
+          selected_services: 1,
         },
       },
       { $sort: { start_time: 1 } },
     ]);
 
-    return res.json({ date, appointments });
+    if (requestedTechnicians.length > 0) {
+      const filtered = appointments
+        .filter((item) => overlapsSpecificTechnician(item.selected_services, requestedTechnicians))
+        .map((item) => ({
+          start_time: item.start_time,
+          end_time: item.end_time,
+          duration_minutes: item.duration_minutes,
+          status: item.status,
+        }));
+      return res.json({ date, appointments: filtered });
+    }
+
+    const atCapacityRanges = buildAtCapacityRanges(appointments, dayStart, dayEnd, technicianPoolSize).map((range) => ({
+      start_time: range.start_time,
+      end_time: range.end_time,
+      duration_minutes: Math.max(1, Math.round((range.end_time.getTime() - range.start_time.getTime()) / 60000)),
+      status: "full",
+    }));
+
+    return res.json({ date, appointments: atCapacityRanges });
   } catch (error) {
     return res.status(500).json({ error: "Server error" });
   }

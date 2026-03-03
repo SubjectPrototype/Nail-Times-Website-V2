@@ -31,6 +31,53 @@ function statusColorClasses(status) {
   return "bg-amber-100 text-amber-800 border-amber-200";
 }
 
+function getMaxConcurrent(items) {
+  const events = [];
+  items.forEach((item) => {
+    events.push({ t: item.clampedStart, delta: 1 });
+    events.push({ t: item.clampedEnd, delta: -1 });
+  });
+
+  events.sort((a, b) => {
+    if (a.t !== b.t) return a.t - b.t;
+    return a.delta - b.delta;
+  });
+
+  let active = 0;
+  let max = 1;
+  events.forEach((event) => {
+    active += event.delta;
+    if (active > max) {
+      max = active;
+    }
+  });
+
+  return max;
+}
+
+function assignLanes(items, laneCount) {
+  const active = [];
+  return items.map((item) => {
+    for (let i = active.length - 1; i >= 0; i -= 1) {
+      if (active[i].end <= item.clampedStart) {
+        active.splice(i, 1);
+      }
+    }
+
+    const used = new Set(active.map((entry) => entry.lane));
+    let lane = 0;
+    while (lane < laneCount && used.has(lane)) {
+      lane += 1;
+    }
+    if (lane >= laneCount) {
+      lane = laneCount - 1;
+    }
+
+    active.push({ end: item.clampedEnd, lane });
+    return { ...item, lane, laneCount };
+  });
+}
+
 export default function AdminDashboard() {
   const [bookings, setBookings] = useState([]);
   const [errorMessage, setErrorMessage] = useState("");
@@ -249,7 +296,10 @@ export default function AdminDashboard() {
       items.sort((a, b) => a.clampedStart - b.clampedStart || a.booking.customer_name.localeCompare(b.booking.customer_name))
     );
 
-    return grouped;
+    return grouped.map((items) => {
+      const laneCount = Math.max(1, getMaxConcurrent(items));
+      return assignLanes(items, laneCount);
+    });
   }, [bookings, weekEnd, weekStart]);
 
   const weekRangeLabel = `${weekStart.toLocaleDateString("en-US", {
@@ -294,7 +344,8 @@ export default function AdminDashboard() {
     });
 
     items.sort((a, b) => a.clampedStart - b.clampedStart || a.booking.customer_name.localeCompare(b.booking.customer_name));
-    return items;
+    const laneCount = Math.max(1, getMaxConcurrent(items));
+    return assignLanes(items, laneCount);
   }, [bookings, mobileDay, mobileDayEnd]);
 
   const mobileModalBooking = useMemo(
@@ -487,9 +538,11 @@ export default function AdminDashboard() {
                       />
                     );
                   })}
-                  {mobileBookings.map(({ booking, start, clampedStart, clampedEnd }) => {
+                  {mobileBookings.map(({ booking, start, clampedStart, clampedEnd, lane, laneCount }) => {
                     const topPct = ((clampedStart - CALENDAR_START_HOUR * 60) / CALENDAR_TOTAL_MINUTES) * 100;
                     const heightPct = Math.max(((clampedEnd - clampedStart) / CALENDAR_TOTAL_MINUTES) * 100, 3);
+                    const widthPct = 100 / laneCount;
+                    const leftPct = lane * widthPct;
                     const cardColors =
                       booking.status === "confirmed"
                         ? "border-green-300 bg-green-50"
@@ -500,8 +553,13 @@ export default function AdminDashboard() {
                       <button
                         key={`mobile-week-${booking._id}`}
                         type="button"
-                        className={`absolute left-1 right-1 overflow-hidden rounded-md border px-2 py-1 text-left text-xs shadow-sm ${cardColors}`}
-                        style={{ top: `${topPct}%`, height: `${heightPct}%` }}
+                        className={`absolute overflow-hidden rounded-md border px-2 py-1 text-left text-xs shadow-sm ${cardColors}`}
+                        style={{
+                          top: `${topPct}%`,
+                          height: `${heightPct}%`,
+                          left: `calc(${leftPct}% + 4px)`,
+                          width: `calc(${widthPct}% - 8px)`,
+                        }}
                         onClick={() => setMobileModalBookingId(booking._id)}
                       >
                         <p className="truncate font-semibold text-[#333]">{booking.customer_name}</p>
@@ -591,9 +649,11 @@ export default function AdminDashboard() {
                           );
                         })}
 
-                        {weekBookingsByDay[dayIndex].map(({ booking, start, clampedStart, clampedEnd }) => {
+                        {weekBookingsByDay[dayIndex].map(({ booking, start, clampedStart, clampedEnd, lane, laneCount }) => {
                           const topPct = ((clampedStart - CALENDAR_START_HOUR * 60) / CALENDAR_TOTAL_MINUTES) * 100;
                           const heightPct = Math.max(((clampedEnd - clampedStart) / CALENDAR_TOTAL_MINUTES) * 100, 2.5);
+                          const widthPct = 100 / laneCount;
+                          const leftPct = lane * widthPct;
 
                           const faded = booking.status === "cancelled" ? "opacity-60" : "";
                           const cardColors =
@@ -606,10 +666,15 @@ export default function AdminDashboard() {
                           return (
                             <div
                               key={`week-${booking._id}`}
-                              className={`absolute left-1 right-1 cursor-pointer overflow-hidden rounded-md border px-2 py-1 text-xs shadow-sm transition ${cardColors} ${faded} ${
+                              className={`absolute cursor-pointer overflow-hidden rounded-md border px-2 py-1 text-xs shadow-sm transition ${cardColors} ${faded} ${
                                 highlightedBookingId === booking._id ? "ring-2 ring-[#c7668b]" : ""
                               }`}
-                              style={{ top: `${topPct}%`, height: `${heightPct}%` }}
+                              style={{
+                                top: `${topPct}%`,
+                                height: `${heightPct}%`,
+                                left: `calc(${leftPct}% + 4px)`,
+                                width: `calc(${widthPct}% - 8px)`,
+                              }}
                               title={`${booking.customer_name} - ${new Date(booking.start_time).toLocaleString("en-US", {
                                 hour: "numeric",
                                 minute: "2-digit",

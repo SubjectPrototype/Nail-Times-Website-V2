@@ -164,8 +164,10 @@ export default function Checkout() {
       }
 
       try {
+        const technicianParam =
+          selectedTechnicians.length > 0 ? `&technicians=${encodeURIComponent(selectedTechnicians.join(","))}` : "";
         const response = await fetch(
-          `${apiBaseUrl}/api/bookings/availability?date=${encodeURIComponent(selectedDate)}`
+          `${apiBaseUrl}/api/bookings/availability?date=${encodeURIComponent(selectedDate)}${technicianParam}`
         );
         if (!response.ok) {
           throw new Error("Failed to load availability");
@@ -185,7 +187,7 @@ export default function Checkout() {
     return () => {
       isCancelled = true;
     };
-  }, [selectedDate]);
+  }, [apiBaseUrl, selectedDate, selectedTechnicians]);
 
   React.useEffect(() => {
     if (!selectedDate || !selectedTime) return;
