@@ -62,6 +62,7 @@ export default function AdminDashboard() {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [highlightedBookingId, setHighlightedBookingId] = useState("");
   const [mobileDay, setMobileDay] = useState(() => startOfDay(new Date()));
+  const [desktopModalBookingIds, setDesktopModalBookingIds] = useState([]);
   const [mobileModalBookingIds, setMobileModalBookingIds] = useState([]);
   const cardRefs = useRef(new Map());
 
@@ -325,6 +326,10 @@ export default function AdminDashboard() {
     () => bookings.filter((booking) => mobileModalBookingIds.includes(booking._id)),
     [bookings, mobileModalBookingIds]
   );
+  const desktopModalBookings = useMemo(
+    () => bookings.filter((booking) => desktopModalBookingIds.includes(booking._id)),
+    [bookings, desktopModalBookingIds]
+  );
 
   useEffect(() => {
     if (!highlightedBookingId) {
@@ -345,6 +350,17 @@ export default function AdminDashboard() {
       setMobileModalBookingIds([]);
     }
   }, [bookings, mobileModalBookingIds]);
+
+  useEffect(() => {
+    if (desktopModalBookingIds.length === 0) {
+      return;
+    }
+
+    const allStillExist = desktopModalBookingIds.every((id) => bookings.some((booking) => booking._id === id));
+    if (!allStillExist) {
+      setDesktopModalBookingIds([]);
+    }
+  }, [bookings, desktopModalBookingIds]);
 
   return (
     <div className="mx-auto mt-[100px] max-w-[1500px] px-4 py-6">
@@ -656,7 +672,13 @@ export default function AdminDashboard() {
                                 hour: "numeric",
                                 minute: "2-digit",
                               })}`}
-                              onClick={() => focusBookingCard(primaryBooking._id)}
+                              onClick={() => {
+                                if (slotBookings.length > 1) {
+                                  setDesktopModalBookingIds(slotIds);
+                                } else {
+                                  focusBookingCard(primaryBooking._id);
+                                }
+                              }}
                             >
                               <p className="truncate font-semibold text-[#333]">
                                 {slotBookings.length > 1 ? `${slotBookings.length} bookings` : primaryBooking.customer_name}
@@ -719,6 +741,60 @@ export default function AdminDashboard() {
                       <p className="font-medium text-[#333]">Selected Services</p>
                       {booking.selected_services.map((item, idx) => (
                         <p key={`mobile-modal-svc-${booking._id}-${idx}`}>
+                          {item.name} - {item.duration_minutes || "?"} min
+                          {item.technician ? ` (Tech: ${item.technician})` : ""}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {desktopModalBookings.length > 0 && (
+        <div className="fixed inset-0 z-40 hidden items-center justify-center bg-black/45 p-4 md:flex">
+          <div className="max-h-[85vh] w-full max-w-[600px] overflow-y-auto rounded-lg bg-white p-4 shadow-xl">
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="text-lg font-semibold text-[#333]">
+                {desktopModalBookings.length > 1 ? "Bookings at this time" : "Booking Details"}
+              </h3>
+              <button
+                type="button"
+                className="rounded-md border border-[#ccc] px-2 py-1 text-sm"
+                onClick={() => setDesktopModalBookingIds([])}
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-3 space-y-3 text-sm text-[#555]">
+              {desktopModalBookings.map((booking) => (
+                <div key={`desktop-modal-${booking._id}`} className="rounded-md border border-[#eee] p-3">
+                  <p className="text-base font-semibold text-[#333]">{booking.customer_name}</p>
+                  <p>{booking.customer_email}</p>
+                  {booking.customer_phone && <p>{booking.customer_phone}</p>}
+                  <p>
+                    {new Date(booking.start_time).toLocaleString("en-US", {
+                      year: "numeric",
+                      month: "numeric",
+                      day: "numeric",
+                      hour: "numeric",
+                      minute: "2-digit",
+                    })}
+                  </p>
+                  <p>Duration: {booking.duration_minutes || 60} min</p>
+                  <p>Service: {booking.service}</p>
+                  <p>
+                    Status: <span className="font-semibold text-[#333]">{booking.status || "pending"}</span>
+                  </p>
+                  {booking.notes && <p>Notes: {booking.notes}</p>}
+                  {Array.isArray(booking.selected_services) && booking.selected_services.length > 0 && (
+                    <div>
+                      <p className="font-medium text-[#333]">Selected Services</p>
+                      {booking.selected_services.map((item, idx) => (
+                        <p key={`desktop-modal-svc-${booking._id}-${idx}`}>
                           {item.name} - {item.duration_minutes || "?"} min
                           {item.technician ? ` (Tech: ${item.technician})` : ""}
                         </p>
