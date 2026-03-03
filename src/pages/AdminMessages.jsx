@@ -19,19 +19,25 @@ export default function AdminMessages() {
   const [sendingReply, setSendingReply] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const messageListRef = useRef(null);
+  const messageEndRef = useRef(null);
   const nameInputRef = useRef(null);
   const autoScrollToBottomRef = useRef(false);
 
   const scrollMessagesToBottom = () => {
     const scroll = () => {
+      const endNode = messageEndRef.current;
       const container = messageListRef.current;
-      if (!container) return;
-      container.scrollTop = container.scrollHeight;
+      if (endNode) {
+        endNode.scrollIntoView({ block: "end" });
+      } else if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
     };
 
     scroll();
     window.requestAnimationFrame(scroll);
-    window.setTimeout(scroll, 60);
+    window.setTimeout(scroll, 80);
+    window.setTimeout(scroll, 180);
   };
 
   const sendPresence = async (phone, isActive) => {
@@ -457,6 +463,7 @@ export default function AdminMessages() {
                     </div>
                   ))
                 )}
+                <div ref={messageEndRef} />
               </div>
 
               <form className="mt-4 flex gap-2" onSubmit={handleReply}>
