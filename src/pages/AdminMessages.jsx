@@ -22,6 +22,18 @@ export default function AdminMessages() {
   const nameInputRef = useRef(null);
   const autoScrollToBottomRef = useRef(false);
 
+  const scrollMessagesToBottom = () => {
+    const scroll = () => {
+      const container = messageListRef.current;
+      if (!container) return;
+      container.scrollTop = container.scrollHeight;
+    };
+
+    scroll();
+    window.requestAnimationFrame(scroll);
+    window.setTimeout(scroll, 60);
+  };
+
   const sendPresence = async (phone, isActive) => {
     if (!token || !phone) {
       return;
@@ -130,6 +142,9 @@ export default function AdminMessages() {
         const heightDelta = nextContainer.scrollHeight - prevScrollHeight;
         nextContainer.scrollTop = Math.max(0, prevScrollTop + heightDelta);
       });
+      if (options.forceScrollBottom) {
+        scrollMessagesToBottom();
+      }
       if (!options.skipGroupRefresh) {
         await loadGroups({ silent: options.silent });
       }
@@ -156,6 +171,7 @@ export default function AdminMessages() {
     }
     autoScrollToBottomRef.current = true;
     loadConversation(selectedPhone, { forceScrollBottom: true });
+    window.setTimeout(() => scrollMessagesToBottom(), 80);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, selectedPhone]);
 
