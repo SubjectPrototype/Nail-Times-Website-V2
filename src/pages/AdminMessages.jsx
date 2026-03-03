@@ -150,7 +150,7 @@ export default function AdminMessages() {
     if (!token || !selectedPhone) {
       return;
     }
-    loadConversation(selectedPhone);
+    loadConversation(selectedPhone, { forceScrollBottom: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, selectedPhone]);
 
