@@ -20,6 +20,7 @@ export default function AdminMessages() {
   const [savingName, setSavingName] = useState(false);
   const messageListRef = useRef(null);
   const nameInputRef = useRef(null);
+  const autoScrollToBottomRef = useRef(false);
 
   const sendPresence = async (phone, isActive) => {
     if (!token || !phone) {
@@ -90,6 +91,9 @@ export default function AdminMessages() {
     }
 
     try {
+      if (options.forceScrollBottom) {
+        autoScrollToBottomRef.current = true;
+      }
       const container = messageListRef.current;
       const prevScrollTop = container ? container.scrollTop : 0;
       const prevScrollHeight = container ? container.scrollHeight : 0;
@@ -150,9 +154,31 @@ export default function AdminMessages() {
     if (!token || !selectedPhone) {
       return;
     }
+    autoScrollToBottomRef.current = true;
     loadConversation(selectedPhone, { forceScrollBottom: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, selectedPhone]);
+
+  useEffect(() => {
+    if (!autoScrollToBottomRef.current || conversationLoading) {
+      return;
+    }
+
+    const container = messageListRef.current;
+    if (!container) {
+      return;
+    }
+
+    container.scrollTop = container.scrollHeight;
+    window.requestAnimationFrame(() => {
+      const next = messageListRef.current;
+      if (!next) {
+        return;
+      }
+      next.scrollTop = next.scrollHeight;
+      autoScrollToBottomRef.current = false;
+    });
+  }, [messages, conversationLoading, selectedPhone]);
 
   useEffect(() => {
     if (!token) {
