@@ -29,6 +29,8 @@ export default function AdminMessages() {
   const messageEndRef = useRef(null);
   const nameInputRef = useRef(null);
   const autoScrollToBottomRef = useRef(false);
+  const isUserScrollingRef = useRef(false);
+  const scrollIdleTimerRef = useRef(null);
 
   const scrollMessagesToBottom = () => {
     const scroll = () => {
@@ -153,6 +155,9 @@ export default function AdminMessages() {
         if (!nextContainer) {
           return;
         }
+        if (options.silent && isUserScrollingRef.current && !options.forceScrollBottom) {
+          return;
+        }
         if (wasNearBottom) {
           nextContainer.scrollTop = nextContainer.scrollHeight;
           return;
@@ -235,6 +240,31 @@ export default function AdminMessages() {
     return () => window.clearInterval(intervalId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, selectedPhone, pollIntervalMs]);
+
+  useEffect(() => {
+    const container = messageListRef.current;
+    if (!container) {
+      return;
+    }
+
+    const handleScroll = () => {
+      isUserScrollingRef.current = true;
+      if (scrollIdleTimerRef.current) {
+        window.clearTimeout(scrollIdleTimerRef.current);
+      }
+      scrollIdleTimerRef.current = window.setTimeout(() => {
+        isUserScrollingRef.current = false;
+      }, 220);
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      if (scrollIdleTimerRef.current) {
+        window.clearTimeout(scrollIdleTimerRef.current);
+      }
+    };
+  }, [selectedPhone]);
 
   useEffect(() => {
     if (!token || !selectedPhone) {
