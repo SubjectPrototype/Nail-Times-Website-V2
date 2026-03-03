@@ -216,9 +216,6 @@ export default function AdminMessages() {
     }
 
     const refresh = async () => {
-      if (autoScrollToBottomRef.current) {
-        return;
-      }
       await loadGroups({ silent: true });
       if (selectedPhone) {
         await loadConversation(selectedPhone, { skipGroupRefresh: true, silent: true });
