@@ -18,6 +18,9 @@ export default function AdminMessages() {
   const [conversationLoading, setConversationLoading] = useState(false);
   const [sendingReply, setSendingReply] = useState(false);
   const [savingName, setSavingName] = useState(false);
+  const [addingContact, setAddingContact] = useState(false);
+  const [newContactName, setNewContactName] = useState("");
+  const [newContactPhone, setNewContactPhone] = useState("");
   const messageListRef = useRef(null);
   const messageEndRef = useRef(null);
   const nameInputRef = useRef(null);
@@ -356,6 +359,51 @@ export default function AdminMessages() {
     }
   };
 
+  const handleAddContact = async (event) => {
+    event.preventDefault();
+    const phone = newContactPhone.trim();
+    if (!phone) {
+      return;
+    }
+
+    setAddingContact(true);
+    setErrorMessage("");
+
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/admin/messages/contacts`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customer_phone: phone,
+          customer_name: newContactName.trim() || undefined,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || "Failed to add contact");
+      }
+
+      const data = await response.json();
+      setNewContactName("");
+      setNewContactPhone("");
+      const contactPhone = data?.contact?.customer_phone || phone;
+      const contactName = data?.contact?.customer_name || "";
+      setSelectedPhone(contactPhone);
+      setSelectedName(contactName);
+      setNameInput(contactName);
+      await loadGroups({ silent: true });
+      await loadConversation(contactPhone, { silent: true, forceScrollBottom: true });
+    } catch (error) {
+      setErrorMessage(error.message || "Failed to add contact");
+    } finally {
+      setAddingContact(false);
+    }
+  };
+
   return (
     <div className="mx-auto mt-[100px] max-w-[1100px] px-4 py-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -375,6 +423,33 @@ export default function AdminMessages() {
       <div className="mt-6 grid gap-4 md:grid-cols-[300px_1fr]">
         <div className="rounded-lg bg-white p-3 shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-[#666]">Conversations</h2>
+          <form className="mb-3 space-y-2 rounded-md border border-[#eee] p-2" onSubmit={handleAddContact}>
+            <input
+              type="text"
+              value={newContactName}
+              onChange={(event) => setNewContactName(event.target.value)}
+              placeholder="Contact name (optional)"
+              className="w-full rounded-md border border-[#ddd] px-2 py-1.5 text-sm"
+              maxLength={120}
+            />
+            <div className="flex gap-2">
+              <input
+                type="tel"
+                value={newContactPhone}
+                onChange={(event) => setNewContactPhone(event.target.value)}
+                placeholder="Phone number"
+                className="w-full rounded-md border border-[#ddd] px-2 py-1.5 text-sm"
+                required
+              />
+              <button
+                type="submit"
+                className="rounded-md border border-[#333] px-3 py-1.5 text-sm whitespace-nowrap"
+                disabled={addingContact}
+              >
+                {addingContact ? "Adding..." : "Add"}
+              </button>
+            </div>
+          </form>
           {groupsLoading ? (
             <p className="text-sm text-[#666]">Loading conversations...</p>
           ) : groups.length === 0 ? (

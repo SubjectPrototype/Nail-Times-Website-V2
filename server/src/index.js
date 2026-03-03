@@ -18,6 +18,7 @@ const { requireAdmin } = require("./middleware/auth");
 const Appointment = require("./models/Appointment");
 const AdminOtp = require("./models/AdminOtp");
 const Message = require("./models/Message");
+const AdminContact = require("./models/AdminContact");
 
 const app = express();
 app.set("trust proxy", true);
@@ -464,7 +465,13 @@ async function getThreadName(phone) {
     return messageName;
   }
 
-  return getBookingCustomerName(phone);
+  const bookingName = await getBookingCustomerName(phone);
+  if (bookingName) {
+    return bookingName;
+  }
+
+  const contact = await AdminContact.findOne({ customer_phone: phone }).lean();
+  return contact?.customer_name || "";
 }
 
 app.use(
@@ -912,7 +919,62 @@ app.get("/api/admin/messages/groups", requireAdmin, async (req, res) => {
       }))
     );
 
+    const contacts = await AdminContact.find({}).lean();
+    const existingPhones = new Set(response.map((item) => item.customer_phone));
+    contacts.forEach((contact) => {
+      if (!contact.customer_phone || existingPhones.has(contact.customer_phone)) {
+        return;
+      }
+      response.push({
+        customer_phone: contact.customer_phone,
+        customer_name: contact.customer_name || "",
+        latest_message_at: contact.updated_at || contact.created_at || new Date(0),
+        last_message_body: "",
+        last_direction: "outbound",
+        unread_count: 0,
+      });
+    });
+
+    response.sort((a, b) => new Date(b.latest_message_at).getTime() - new Date(a.latest_message_at).getTime());
+
     return res.json(response);
+  } catch (error) {
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/admin/messages/contacts", requireAdmin, async (req, res) => {
+  const schema = z.object({
+    customer_phone: z.string().trim().min(7),
+    customer_name: z.string().trim().max(120).optional().nullable(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
+
+  const phone = normalizePhoneNumber(parsed.data.customer_phone);
+  if (!phone) {
+    return res.status(400).json({ error: "Invalid phone number" });
+  }
+
+  const name = String(parsed.data.customer_name || "").trim();
+
+  try {
+    const contact = await AdminContact.findOneAndUpdate(
+      { customer_phone: phone },
+      { $set: { customer_name: name || undefined } },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    ).lean();
+
+    return res.status(201).json({
+      ok: true,
+      contact: {
+        customer_phone: contact.customer_phone,
+        customer_name: contact.customer_name || "",
+      },
+    });
   } catch (error) {
     return res.status(500).json({ error: "Server error" });
   }
@@ -968,6 +1030,11 @@ app.patch("/api/admin/messages/:phone/name", requireAdmin, async (req, res) => {
   try {
     const update = nextName ? { $set: { customer_name: nextName } } : { $unset: { customer_name: "" } };
     await Message.updateMany({ customer_phone: phone }, update);
+    await AdminContact.updateOne(
+      { customer_phone: phone },
+      nextName ? { $set: { customer_name: nextName } } : { $unset: { customer_name: "" } },
+      { upsert: true }
+    );
 
     return res.json({ ok: true, customer_phone: phone, customer_name: nextName });
   } catch (error) {
