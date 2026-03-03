@@ -238,8 +238,21 @@ export default function AdminMessages() {
         throw new Error(errorData.error || "Failed to send message");
       }
 
+      const data = await response.json().catch(() => ({}));
       setReplyText("");
-      await loadConversation(selectedPhone);
+
+      if (data?.message?._id) {
+        setMessages((prev) => [...prev, data.message]);
+        window.requestAnimationFrame(() => {
+          const container = messageListRef.current;
+          if (container) {
+            container.scrollTop = container.scrollHeight;
+          }
+        });
+      }
+
+      await loadGroups({ silent: true });
+      await loadConversation(selectedPhone, { silent: true, skipGroupRefresh: true });
     } catch (error) {
       setErrorMessage(error.message || "Failed to send message");
     } finally {
