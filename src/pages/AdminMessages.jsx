@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 
 export default function AdminMessages() {
@@ -38,6 +38,11 @@ export default function AdminMessages() {
     window.requestAnimationFrame(scroll);
     window.setTimeout(scroll, 80);
     window.setTimeout(scroll, 180);
+  };
+
+  const queueAutoScrollToBottom = () => {
+    autoScrollToBottomRef.current = true;
+    scrollMessagesToBottom();
   };
 
   const sendPresence = async (phone, isActive) => {
@@ -175,13 +180,13 @@ export default function AdminMessages() {
     if (!token || !selectedPhone) {
       return;
     }
-    autoScrollToBottomRef.current = true;
+    queueAutoScrollToBottom();
     loadConversation(selectedPhone, { forceScrollBottom: true });
     window.setTimeout(() => scrollMessagesToBottom(), 80);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token, selectedPhone]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!autoScrollToBottomRef.current || conversationLoading) {
       return;
     }
@@ -208,6 +213,9 @@ export default function AdminMessages() {
     }
 
     const refresh = async () => {
+      if (autoScrollToBottomRef.current) {
+        return;
+      }
       await loadGroups({ silent: true });
       if (selectedPhone) {
         await loadConversation(selectedPhone, { skipGroupRefresh: true, silent: true });
