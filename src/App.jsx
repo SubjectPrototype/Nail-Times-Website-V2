@@ -3,6 +3,7 @@ import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Home from "./pages/Home";
 import Services from "./pages/Services";
 import Checkout from "./pages/Checkout";
+import BookingCancel from "./pages/BookingCancel";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminMessages from "./pages/AdminMessages";
@@ -48,6 +49,7 @@ function App() {
         <Route path="/" element={<Home />} />
         <Route path="/services" element={<Services />} />
         <Route path="/checkout" element={<Checkout />} />
+        <Route path="/booking/cancel/:token" element={<BookingCancel />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/checkout/admin/login" element={<Navigate to="/admin/login" replace />} />
         <Route

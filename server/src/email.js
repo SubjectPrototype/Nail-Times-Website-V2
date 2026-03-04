@@ -121,7 +121,7 @@ async function sendAdminOtpEmail({ email, code }) {
   return { sent: true };
 }
 
-async function sendBookingConfirmedEmail({ booking }) {
+async function sendBookingConfirmedEmail({ booking, cancelUrl }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     return { skipped: true, reason: "RESEND_API_KEY not set" };
@@ -159,6 +159,7 @@ async function sendBookingConfirmedEmail({ booking }) {
           <li>Services:</li>
           <ul>${servicesHtml}</ul>
         </ul>
+        ${cancelUrl ? `<p>If you need to cancel, use this link: <a href="${cancelUrl}">${cancelUrl}</a></p>` : ""}
         <p>We look forward to seeing you.</p>
       `,
     }),

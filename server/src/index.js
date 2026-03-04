@@ -39,6 +39,8 @@ const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH;
 const defaultAppointmentMinutes = Number(process.env.DEFAULT_APPOINTMENT_MINUTES || 60);
 const admin2faEnabled = String(process.env.ADMIN_2FA_ENABLED || "false").toLowerCase() === "true";
 const businessTimeZone = process.env.BUSINESS_TIMEZONE || "America/Chicago";
+const appPublicUrl = process.env.APP_PUBLIC_URL || clientOrigin;
+const bookingCancelTokenTtl = process.env.BOOKING_CANCEL_TOKEN_TTL || "30d";
 const twilioAccountSid = process.env.TWILIO_ACCOUNT_SID;
 const twilioAuthToken = process.env.TWILIO_AUTH_TOKEN;
 const twilioFromNumber = process.env.TWILIO_PHONE_NUMBER;
@@ -234,6 +236,35 @@ function formatBookingDateTime(dateInput) {
     timeStyle: "short",
     timeZone: businessTimeZone,
   });
+}
+
+function buildBookingCancelToken(bookingId) {
+  return jwt.sign(
+    {
+      booking_id: String(bookingId),
+      kind: "booking_cancel",
+    },
+    process.env.JWT_SECRET,
+    { expiresIn: bookingCancelTokenTtl }
+  );
+}
+
+function buildBookingCancelUrl(bookingId) {
+  const base = String(appPublicUrl || "").trim().replace(/\/+$/, "");
+  if (!base) {
+    return "";
+  }
+
+  return `${base}/booking/cancel/${buildBookingCancelToken(bookingId)}`;
+}
+
+function verifyBookingCancelToken(token) {
+  const payload = jwt.verify(token, process.env.JWT_SECRET);
+  if (!payload || payload.kind !== "booking_cancel" || !payload.booking_id) {
+    throw new Error("Invalid cancel token");
+  }
+
+  return String(payload.booking_id);
 }
 
 function toServiceSummary(booking) {
@@ -779,12 +810,13 @@ app.post("/api/bookings", async (req, res) => {
       duration_minutes: requestedDurationMinutes,
     });
 
+    const cancelUrl = buildBookingCancelUrl(created._id);
     await sendBookingEmails({ booking: created.toObject(), adminEmail });
     await sendBookingSmsNotification({
       booking: created.toObject(),
       body: `Nail Times: Hi ${created.customer_name}, we received your booking request for ${formatBookingDateTime(
         created.start_time
-      )}. Services: ${toServiceSummary(created)}. We'll text you once it is confirmed.`,
+      )}. Services: ${toServiceSummary(created)}. We'll text you once it is confirmed.${cancelUrl ? ` Need to cancel? ${cancelUrl}` : ""}`,
     });
     await sendAdminBookingSmsNotification({ booking: created.toObject() });
 
@@ -1163,16 +1195,45 @@ app.post("/api/admin/bookings/:id/confirm", requireAdmin, async (req, res) => {
     booking.confirmed_at = new Date();
     await booking.save();
 
-    await sendBookingConfirmedEmail({ booking: booking.toObject() });
+    const cancelUrl = buildBookingCancelUrl(booking._id);
+    await sendBookingConfirmedEmail({ booking: booking.toObject(), cancelUrl });
     await sendBookingSmsNotification({
       booking: booking.toObject(),
       body: `Nail Times: Hi ${booking.customer_name}, your appointment is confirmed for ${formatBookingDateTime(
         booking.start_time
-      )}. See you soon!`,
+      )}. See you soon!${cancelUrl ? ` Need to cancel? ${cancelUrl}` : ""}`,
     });
 
     return res.json({ ok: true, booking });
   } catch (error) {
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.post("/api/bookings/cancel/:token", async (req, res) => {
+  try {
+    const bookingId = verifyBookingCancelToken(req.params.token);
+    const booking = await Appointment.findById(bookingId);
+    if (!booking) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    if (booking.status === "cancelled") {
+      return res.json({ ok: true, already_cancelled: true, booking });
+    }
+
+    booking.status = "cancelled";
+    booking.cancelled_at = new Date();
+    await booking.save();
+
+    return res.json({ ok: true, booking });
+  } catch (error) {
+    if (error.name === "TokenExpiredError") {
+      return res.status(400).json({ error: "Cancellation link has expired" });
+    }
+    if (error.name === "JsonWebTokenError" || error.message === "Invalid cancel token") {
+      return res.status(400).json({ error: "Invalid cancellation link" });
+    }
     return res.status(500).json({ error: "Server error" });
   }
 });
