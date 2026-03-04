@@ -16,8 +16,9 @@ function formatBookingDateTime(dateInput) {
 export default function BookingCancel() {
   const { token } = useParams();
   const [status, setStatus] = useState("loading");
-  const [message, setMessage] = useState("Cancelling your appointment...");
+  const [message, setMessage] = useState("Checking your appointment...");
   const [booking, setBooking] = useState(null);
+  const [canCancel, setCanCancel] = useState(false);
   const apiBaseUrl =
     process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:4000`;
 
@@ -42,10 +43,7 @@ export default function BookingCancel() {
       }
 
       try {
-        const response = await fetch(`${apiBaseUrl}/api/bookings/cancel/${encodeURIComponent(token)}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        });
+        const response = await fetch(`${apiBaseUrl}/api/bookings/cancel/${encodeURIComponent(token)}`);
 
         const data = await response.json().catch(() => ({}));
         if (!isMounted) return;
@@ -60,11 +58,13 @@ export default function BookingCancel() {
         if (data.already_cancelled) {
           setStatus("success");
           setMessage("This appointment was already cancelled.");
+          setCanCancel(false);
           return;
         }
 
-        setStatus("success");
-        setMessage("Your appointment has been cancelled.");
+        setStatus("ready");
+        setCanCancel(Boolean(data.can_cancel));
+        setMessage("Confirm below to cancel this appointment.");
       } catch (error) {
         if (!isMounted) return;
         setStatus("error");
@@ -78,12 +78,52 @@ export default function BookingCancel() {
     };
   }, [apiBaseUrl, token]);
 
+  const handleCancel = async () => {
+    if (!token || !canCancel || status === "submitting") {
+      return;
+    }
+
+    setStatus("submitting");
+    setMessage("Cancelling your appointment...");
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/bookings/cancel/${encodeURIComponent(token)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setStatus("error");
+        setMessage(data.error || "Could not cancel this appointment.");
+        return;
+      }
+
+      setBooking(data.booking || booking);
+      setCanCancel(false);
+      setStatus("success");
+      setMessage(data.already_cancelled ? "This appointment was already cancelled." : "Your appointment has been cancelled.");
+    } catch (error) {
+      setStatus("error");
+      setMessage("Could not cancel this appointment.");
+    }
+  };
+
   return (
     <main className="mx-auto w-full max-w-xl px-4 pt-28 pb-12">
       <section className="rounded-2xl border border-[#f0d5df] bg-white/95 p-6 text-center shadow-sm">
         <h1 className="text-3xl font-bold text-[#c76092]">Appointment Cancellation</h1>
         <p className="mt-4 text-base text-[#444]">{message}</p>
         {status === "loading" ? <p className="mt-3 text-sm text-[#777]">Please wait...</p> : null}
+        {status === "ready" && canCancel ? (
+          <button
+            type="button"
+            onClick={handleCancel}
+            className="mt-5 w-full rounded-full bg-[#e35e6d] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#cf4e5e]"
+          >
+            Cancel Appointment
+          </button>
+        ) : null}
+        {status === "submitting" ? <p className="mt-3 text-sm text-[#777]">Please wait...</p> : null}
         {status === "success" && bookingSummary ? (
           <p className="mt-4 text-sm font-medium text-[#333]">{bookingSummary}</p>
         ) : null}

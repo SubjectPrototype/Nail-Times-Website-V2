@@ -1238,6 +1238,31 @@ app.post("/api/bookings/cancel/:token", async (req, res) => {
   }
 });
 
+app.get("/api/bookings/cancel/:token", async (req, res) => {
+  try {
+    const bookingId = verifyBookingCancelToken(req.params.token);
+    const booking = await Appointment.findById(bookingId).lean();
+    if (!booking) {
+      return res.status(404).json({ error: "Booking not found" });
+    }
+
+    return res.json({
+      ok: true,
+      booking,
+      can_cancel: booking.status !== "cancelled",
+      already_cancelled: booking.status === "cancelled",
+    });
+  } catch (error) {
+    if (error.name === "TokenExpiredError") {
+      return res.status(400).json({ error: "Cancellation link has expired" });
+    }
+    if (error.name === "JsonWebTokenError" || error.message === "Invalid cancel token") {
+      return res.status(400).json({ error: "Invalid cancellation link" });
+    }
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 app.delete("/api/admin/bookings/:id", requireAdmin, async (req, res) => {
   try {
     const booking = await Appointment.findById(req.params.id);
