@@ -820,7 +820,10 @@ app.post("/api/bookings", async (req, res) => {
     });
     await sendAdminBookingSmsNotification({ booking: created.toObject() });
 
-    return res.status(201).json(created);
+    return res.status(201).json({
+      ...created.toObject(),
+      cancel_url: cancelUrl || undefined,
+    });
   } catch (error) {
     if (error.code === 11000) {
       return res.status(409).json({ error: "Time slot unavailable" });

@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useCart } from "../context/CartContext";
 
 export default function Checkout() {
@@ -17,6 +18,7 @@ export default function Checkout() {
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [submittedCancelUrl, setSubmittedCancelUrl] = useState("");
   const apiBaseUrl =
     process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:4000`;
   const getItemDurationMinutes = (item) => Number(item.durationMinutes || Number(item.timeValue || 0) * 15 || 0);
@@ -241,11 +243,13 @@ export default function Checkout() {
         body: JSON.stringify(appointmentPayload),
       });
 
+      const responseData = await response.json().catch(() => ({}));
+
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Booking failed");
+        throw new Error(responseData.error || "Booking failed");
       }
 
+      setSubmittedCancelUrl(String(responseData.cancel_url || "").trim());
       setSubmitted(true);
       setCartItems([]);
     } catch (error) {
@@ -257,11 +261,30 @@ export default function Checkout() {
 
   if (submitted) {
     return (
-      <div className="mx-auto mt-[100px] max-w-[800px] px-4 py-4">
-        <h1 className="text-3xl font-semibold text-[#c7668b]">Booking Request Submitted</h1>
-        <p className="mt-2 text-[#555]">Thank you, {name}! Your request has been received.</p>
-        <p className="text-[#555]">We will email you once your appointment is confirmed.</p>
-      </div>
+      <main className="mx-auto w-full max-w-xl px-4 pt-28 pb-12">
+        <section className="rounded-2xl border border-[#f0d5df] bg-white/95 p-6 text-center shadow-sm">
+          <h1 className="text-3xl font-bold text-[#c76092]">Booking Request Confirmed</h1>
+          <p className="mt-4 text-base text-[#444]">Thank you, {name}! Your booking request has been received.</p>
+          <p className="mt-1 text-base text-[#444]">We will text and email you once your appointment is confirmed.</p>
+
+          <div className="mt-6 flex flex-col gap-3">
+            <Link
+              to="/services"
+              className="inline-flex w-full items-center justify-center rounded-full bg-black px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#222]"
+            >
+              Book Another Appointment
+            </Link>
+            {submittedCancelUrl ? (
+              <a
+                href={submittedCancelUrl}
+                className="inline-flex w-full items-center justify-center rounded-full bg-[#e35e6d] px-6 py-3 text-sm font-semibold text-white transition hover:bg-[#cf4e5e]"
+              >
+                Cancel Appointment
+              </a>
+            ) : null}
+          </div>
+        </section>
+      </main>
     );
   }
 

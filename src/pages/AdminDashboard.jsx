@@ -244,6 +244,10 @@ export default function AdminDashboard() {
     const grouped = Array.from({ length: 7 }, () => []);
 
     bookings.forEach((booking) => {
+      if (booking.status === "cancelled") {
+        return;
+      }
+
       const start = new Date(booking.start_time);
       const end = getBookingEndDate(booking);
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
@@ -298,6 +302,10 @@ export default function AdminDashboard() {
     const items = [];
 
     bookings.forEach((booking) => {
+      if (booking.status === "cancelled") {
+        return;
+      }
+
       const start = new Date(booking.start_time);
       const end = getBookingEndDate(booking);
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
