@@ -12,6 +12,7 @@ const {
   sendBookingEmails,
   sendAdminOtpEmail,
   sendBookingConfirmedEmail,
+  sendBookingCancelledEmail,
   sendAdminInboundMessageEmail,
 } = require("./email");
 const { requireAdmin } = require("./middleware/auth");
@@ -413,11 +414,13 @@ async function sendAdminBookingSmsNotification({ booking }) {
     return;
   }
 
+  const adminNotes = String(booking.notes || "").replace(/\s+/g, " ").trim();
   const body =
     `New booking request: ${booking.customer_name} ` +
     `(${booking.customer_phone || booking.customer_email}) ` +
     `for ${formatBookingDateTime(booking.start_time)}. ` +
-    `Services: ${toServiceSummary(booking)}.`;
+    `Services: ${toServiceSummary(booking)}.` +
+    (adminNotes ? ` Notes: ${adminNotes.slice(0, 240)}.` : "");
 
   try {
     await sendSmsWithTwilio({ to, body });
@@ -1267,6 +1270,17 @@ app.get("/api/bookings/cancel/:token", async (req, res) => {
 });
 
 app.delete("/api/admin/bookings/:id", requireAdmin, async (req, res) => {
+  const cancelSchema = z.object({
+    reason: z.string().trim().max(1000).optional().nullable(),
+  });
+
+  const parsed = cancelSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid payload" });
+  }
+
+  const cancelReason = String(parsed.data.reason || "").trim();
+
   try {
     const booking = await Appointment.findById(req.params.id);
     if (!booking) {
@@ -1279,14 +1293,17 @@ app.delete("/api/admin/bookings/:id", requireAdmin, async (req, res) => {
 
     booking.status = "cancelled";
     booking.cancelled_at = new Date();
+    booking.cancellation_reason = cancelReason || undefined;
     await booking.save();
 
+    const reasonText = cancelReason ? ` Reason: ${cancelReason}` : "";
     await sendBookingSmsNotification({
       booking: booking.toObject(),
       body: `Nail Times: Hi ${booking.customer_name}, your appointment for ${formatBookingDateTime(
         booking.start_time
-      )} has been cancelled. Please text us or rebook online if you need another time.`,
+      )} has been cancelled.${reasonText} Please text us or rebook online if you need another time.`,
     });
+    await sendBookingCancelledEmail({ booking: booking.toObject(), reason: cancelReason });
 
     return res.json({ ok: true, booking });
   } catch (error) {

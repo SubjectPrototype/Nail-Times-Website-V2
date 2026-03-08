@@ -129,7 +129,18 @@ export default function Checkout() {
     return startMinutes + availabilityDurationMinutes > closingMinutes;
   };
 
-  const isBookedSlot = (dateIso, timeValue) => {
+  const isExactBookedSlot = (dateIso, timeValue) => {
+    if (!dateIso) return false;
+    const slotStart = getSlotDate(dateIso, timeValue);
+    const slotEnd = new Date(slotStart.getTime() + 15 * 60 * 1000);
+    return bookedRanges.some((range) => {
+      const rangeStart = new Date(range.start_time);
+      const rangeEnd = new Date(range.end_time);
+      return rangeStart < slotEnd && rangeEnd > slotStart;
+    });
+  };
+
+  const isOverlapSlot = (dateIso, timeValue) => {
     if (!dateIso) return false;
     const slotStart = getSlotDate(dateIso, timeValue);
     const slotEnd = new Date(slotStart.getTime() + availabilityDurationMinutes * 60 * 1000);
@@ -138,6 +149,17 @@ export default function Checkout() {
       const rangeEnd = new Date(range.end_time);
       return rangeStart < slotEnd && rangeEnd > slotStart;
     });
+  };
+
+  const getSlotAvailabilityStatus = (dateIso, timeValue) => {
+    if (!dateIso) return "available";
+    if (isExactBookedSlot(dateIso, timeValue)) {
+      return "booked";
+    }
+    if (isOverlapSlot(dateIso, timeValue)) {
+      return "overlap";
+    }
+    return "available";
   };
 
   const bookableTimeSlots = visibleTimeSlots.filter((slot) => !exceedsClosingTime(selectedDate, slot));
@@ -195,7 +217,7 @@ export default function Checkout() {
 
   React.useEffect(() => {
     if (!selectedDate || !selectedTime) return;
-    if (isBookedSlot(selectedDate, selectedTime) || exceedsClosingTime(selectedDate, selectedTime)) {
+    if (getSlotAvailabilityStatus(selectedDate, selectedTime) !== "available" || exceedsClosingTime(selectedDate, selectedTime)) {
       setSelectedTime("");
     }
   }, [bookedRanges, availabilityDurationMinutes, selectedDate, selectedTime]);
@@ -376,20 +398,40 @@ export default function Checkout() {
               )}
 
               <p className="mt-4 text-sm font-semibold text-[#555]">Booking time</p>
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-[#666]">
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-3 w-3 rounded-full bg-[#6b7280]" />
+                  Booked
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="h-3 w-3 rounded-full bg-[#d1d5db]" />
+                  Overlaps with your service length
+                </span>
+              </div>
               <div className="mt-3 grid max-h-[220px] grid-cols-3 gap-2 overflow-y-auto pr-1 md:flex md:max-h-[180px] md:flex-wrap">
                 {bookableTimeSlots.map((slot) => {
-                  const disabled = isBookedSlot(selectedDate, slot);
+                  const slotStatus = getSlotAvailabilityStatus(selectedDate, slot);
+                  const disabled = slotStatus !== "available";
+                  const bookedClass = slotStatus === "booked" ? "border-[#6b7280] bg-[#6b7280] text-white opacity-95" : "";
+                  const overlapClass = slotStatus === "overlap" ? "border-[#d1d5db] bg-[#d1d5db] text-[#555] opacity-95" : "";
                   return (
                     <button
                       key={slot}
                       type="button"
                       disabled={disabled || !selectedDate}
                       onClick={() => setSelectedTime(slot)}
+                      title={
+                        slotStatus === "booked"
+                          ? "Booked"
+                          : slotStatus === "overlap"
+                            ? "Unavailable: overlaps with existing booking for your service length"
+                            : ""
+                      }
                       className={`w-full rounded-full border px-2 py-2 text-sm md:w-auto md:px-3 ${
                         selectedTime === slot
                           ? "border-[#c7668b] bg-[#c7668b] text-white"
                           : "border-[#d8d8d8] text-[#555]"
-                      } ${disabled || !selectedDate ? "cursor-not-allowed opacity-40" : ""}`}
+                      } ${bookedClass} ${overlapClass} ${disabled || !selectedDate ? "cursor-not-allowed" : ""}`}
                     >
                       {toDisplayTime(slot)}
                     </button>

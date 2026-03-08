@@ -23,6 +23,7 @@ const appointmentSchema = new mongoose.Schema(
     status: { type: String, enum: ["pending", "confirmed", "cancelled"], default: "pending", index: true },
     confirmed_at: { type: Date },
     cancelled_at: { type: Date },
+    cancellation_reason: { type: String, trim: true, maxlength: 1000 },
   },
   { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } }
 );

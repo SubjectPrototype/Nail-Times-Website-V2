@@ -20,6 +20,13 @@ async function sendBookingEmails({ booking, adminEmail }) {
   const subject = "Appointment Request Confirmation";
   const durationText = `${booking.duration_minutes || 60} minutes`;
   const formattedDateTime = formatBookingDateTime(booking.start_time);
+  const notesHtml = booking.notes
+    ? String(booking.notes)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\n/g, "<br/>")
+    : "N/A";
   const servicesHtml = Array.isArray(booking.selected_services) && booking.selected_services.length > 0
     ? booking.selected_services
         .map(
@@ -52,7 +59,7 @@ async function sendBookingEmails({ booking, adminEmail }) {
       <li>Total Duration: ${durationText}</li>
       <li>Services:</li>
       <ul>${servicesHtml}</ul>
-      <li>Notes: ${booking.notes || "N/A"}</li>
+      <li>Notes: ${notesHtml}</li>
     </ul>
   `;
 
@@ -168,6 +175,58 @@ async function sendBookingConfirmedEmail({ booking, cancelUrl }) {
   return { sent: true };
 }
 
+async function sendBookingCancelledEmail({ booking, reason }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return { skipped: true, reason: "RESEND_API_KEY not set" };
+  }
+
+  const from = process.env.FROM_EMAIL || "Nail Shop <onboarding@resend.dev>";
+  const dateTime = formatBookingDateTime(booking.start_time);
+  const durationText = `${booking.duration_minutes || 60} minutes`;
+  const servicesHtml = Array.isArray(booking.selected_services) && booking.selected_services.length > 0
+    ? booking.selected_services
+        .map(
+          (item) =>
+            `<li>${item.name} (${item.duration_minutes || "?"} min${item.technician ? `, Tech: ${item.technician}` : ""})</li>`
+        )
+        .join("")
+    : `<li>${booking.service}</li>`;
+  const safeReason = String(reason || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\n/g, "<br/>");
+
+  await fetch(RESEND_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: booking.customer_email,
+      subject: "Your Appointment Was Cancelled",
+      html: `
+        <h2>Your appointment was cancelled</h2>
+        <p>Hi ${booking.customer_name},</p>
+        <p>Your appointment at Nail Times has been cancelled.</p>
+        <ul>
+          <li>Date/Time: ${dateTime}</li>
+          <li>Total Duration: ${durationText}</li>
+          <li>Services:</li>
+          <ul>${servicesHtml}</ul>
+        </ul>
+        ${safeReason ? `<p><strong>Reason:</strong> ${safeReason}</p>` : ""}
+        <p>Please text us or book online to choose another time.</p>
+      `,
+    }),
+  });
+
+  return { sent: true };
+}
+
 async function sendAdminInboundMessageEmail({ from, customerName, body }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -209,5 +268,6 @@ module.exports = {
   sendBookingEmails,
   sendAdminOtpEmail,
   sendBookingConfirmedEmail,
+  sendBookingCancelledEmail,
   sendAdminInboundMessageEmail,
 };

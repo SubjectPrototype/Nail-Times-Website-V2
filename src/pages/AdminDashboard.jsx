@@ -64,6 +64,9 @@ export default function AdminDashboard() {
   const [mobileDay, setMobileDay] = useState(() => startOfDay(new Date()));
   const [desktopModalBookingIds, setDesktopModalBookingIds] = useState([]);
   const [mobileModalBookingIds, setMobileModalBookingIds] = useState([]);
+  const [cancelDialogBooking, setCancelDialogBooking] = useState(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [isCancelling, setIsCancelling] = useState(false);
   const cardRefs = useRef(new Map());
 
   const apiBaseUrl =
@@ -161,17 +164,16 @@ export default function AdminDashboard() {
     window.location.href = "/admin/login";
   };
 
-  const handleCancel = async (id) => {
-    if (!window.confirm("Cancel this booking?")) {
-      return;
-    }
-
+  const handleCancel = async (id, reasonText) => {
     try {
+      setIsCancelling(true);
       const response = await fetch(`${apiBaseUrl}/api/admin/bookings/${id}`, {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
         },
+        body: JSON.stringify({ reason: reasonText || "" }),
       });
 
       if (!response.ok) {
@@ -184,9 +186,38 @@ export default function AdminDashboard() {
       if (mobileModalBookingIds.includes(id)) {
         setMobileModalBookingIds([]);
       }
+      setCancelDialogBooking(null);
+      setCancelReason("");
     } catch (error) {
       setErrorMessage(error.message || "Failed to cancel booking");
+    } finally {
+      setIsCancelling(false);
     }
+  };
+
+  const openCancelDialog = (booking) => {
+    setCancelDialogBooking(booking);
+    setCancelReason(booking?.cancellation_reason || "");
+  };
+
+  const closeCancelDialog = () => {
+    if (isCancelling) {
+      return;
+    }
+    setCancelDialogBooking(null);
+    setCancelReason("");
+  };
+
+  const submitCancelDialog = async () => {
+    if (!cancelDialogBooking?._id) {
+      return;
+    }
+    await handleCancel(cancelDialogBooking._id, cancelReason);
+  };
+
+  const handleCancelFromAction = (event, booking) => {
+    event.stopPropagation();
+    openCancelDialog(booking);
   };
 
   const handleConfirm = async (id) => {
@@ -200,7 +231,7 @@ export default function AdminDashboard() {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || "Failed to confirm booking");
+        throw new Error(errorData.error || "Failed to cancel booking");
       }
 
       const data = await response.json();
@@ -432,7 +463,16 @@ export default function AdminDashboard() {
                     <p className="font-medium text-[#333]">{booking.service}</p>
                     <p>Duration: {booking.duration_minutes || 60} min</p>
                   </div>
-                  {booking.notes && <p className="mt-2 text-sm text-[#555]">{booking.notes}</p>}
+                  {booking.notes && (
+                    <p className="mt-2 whitespace-pre-line text-sm text-[#555]">
+                      <span className="font-medium text-[#333]">Notes:</span> {booking.notes}
+                    </p>
+                  )}
+                  {booking.cancellation_reason && (
+                    <p className="mt-1 whitespace-pre-line text-sm text-[#b42318]">
+                      <span className="font-medium">Cancel reason:</span> {booking.cancellation_reason}
+                    </p>
+                  )}
                   {Array.isArray(booking.selected_services) && booking.selected_services.length > 0 && (
                     <div className="mt-2 text-sm text-[#555]">
                       <p className="font-medium text-[#333]">Selected Services</p>
@@ -459,10 +499,7 @@ export default function AdminDashboard() {
                     {booking.status !== "cancelled" && (
                       <button
                         className="rounded-md border border-red-500 px-3 py-1 text-sm text-red-600"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          handleCancel(booking._id);
-                        }}
+                        onClick={(event) => handleCancelFromAction(event, booking)}
                       >
                         Cancel
                       </button>
@@ -743,7 +780,10 @@ export default function AdminDashboard() {
                   <p>
                     Status: <span className="font-semibold text-[#333]">{booking.status || "pending"}</span>
                   </p>
-                  {booking.notes && <p>Notes: {booking.notes}</p>}
+                  {booking.notes && <p className="whitespace-pre-line">Notes: {booking.notes}</p>}
+                  {booking.cancellation_reason && (
+                    <p className="whitespace-pre-line text-[#b42318]">Cancel reason: {booking.cancellation_reason}</p>
+                  )}
                   {Array.isArray(booking.selected_services) && booking.selected_services.length > 0 && (
                     <div>
                       <p className="font-medium text-[#333]">Selected Services</p>
@@ -797,7 +837,10 @@ export default function AdminDashboard() {
                   <p>
                     Status: <span className="font-semibold text-[#333]">{booking.status || "pending"}</span>
                   </p>
-                  {booking.notes && <p>Notes: {booking.notes}</p>}
+                  {booking.notes && <p className="whitespace-pre-line">Notes: {booking.notes}</p>}
+                  {booking.cancellation_reason && (
+                    <p className="whitespace-pre-line text-[#b42318]">Cancel reason: {booking.cancellation_reason}</p>
+                  )}
                   {Array.isArray(booking.selected_services) && booking.selected_services.length > 0 && (
                     <div>
                       <p className="font-medium text-[#333]">Selected Services</p>
@@ -811,6 +854,56 @@ export default function AdminDashboard() {
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {cancelDialogBooking && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+          <div className="w-full max-w-[560px] rounded-lg bg-white p-4 shadow-xl">
+            <h3 className="text-lg font-semibold text-[#333]">Cancel Booking</h3>
+            <p className="mt-1 text-sm text-[#666]">
+              Add a reason to send to the customer by text and email.
+            </p>
+            <div className="mt-3 rounded-md border border-[#eee] bg-[#fafafa] p-3 text-sm text-[#555]">
+              <p className="font-semibold text-[#333]">{cancelDialogBooking.customer_name}</p>
+              <p>
+                {new Date(cancelDialogBooking.start_time).toLocaleString("en-US", {
+                  year: "numeric",
+                  month: "numeric",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </p>
+              <p>{cancelDialogBooking.service}</p>
+            </div>
+            <textarea
+              value={cancelReason}
+              onChange={(event) => setCancelReason(event.target.value)}
+              placeholder="Reason for cancellation (shown to customer)..."
+              rows={4}
+              maxLength={1000}
+              className="mt-3 w-full rounded-md border border-[#ddd] p-3 text-sm outline-none focus:border-[#c7668b]"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={closeCancelDialog}
+                className="rounded-md border border-[#bbb] px-3 py-2 text-sm text-[#444]"
+                disabled={isCancelling}
+              >
+                Keep Booking
+              </button>
+              <button
+                type="button"
+                onClick={submitCancelDialog}
+                className="rounded-md border border-red-500 bg-red-500 px-3 py-2 text-sm text-white"
+                disabled={isCancelling}
+              >
+                {isCancelling ? "Cancelling..." : "Cancel Booking"}
+              </button>
             </div>
           </div>
         </div>
