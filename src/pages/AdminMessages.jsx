@@ -526,7 +526,7 @@ export default function AdminMessages() {
       {errorMessage && <p className="mt-3 text-sm text-red-600">{errorMessage}</p>}
 
       <div className="mt-6 grid gap-4 md:grid-cols-[300px_1fr]">
-        <div className="rounded-lg bg-white p-3 shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
+        <div className="min-w-0 rounded-lg bg-white p-3 shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
           <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-[#666]">Conversations</h2>
           <form className="mb-3 space-y-2 rounded-md border border-[#eee] p-2" onSubmit={handleAddContact}>
             <input
@@ -537,13 +537,13 @@ export default function AdminMessages() {
               className="w-full rounded-md border border-[#ddd] px-2 py-1.5 text-sm"
               maxLength={120}
             />
-            <div className="flex gap-2">
+            <div className="flex min-w-0 gap-2">
               <input
                 type="tel"
                 value={newContactPhone}
                 onChange={(event) => setNewContactPhone(event.target.value)}
                 placeholder="Phone number"
-                className="w-full rounded-md border border-[#ddd] px-2 py-1.5 text-sm"
+                className="w-full min-w-0 rounded-md border border-[#ddd] px-2 py-1.5 text-sm"
                 required
               />
               <button
@@ -583,7 +583,7 @@ export default function AdminMessages() {
                       </span>
                     )}
                   </div>
-                  <p className="mt-1 line-clamp-2 text-sm text-[#666]">{group.last_message_body}</p>
+                  <p className="mt-1 line-clamp-2 break-words text-sm text-[#666]">{group.last_message_body}</p>
                 </button>
               ))}
             </div>
@@ -599,14 +599,14 @@ export default function AdminMessages() {
                 <p className="text-xs uppercase tracking-wide text-[#666]">Customer</p>
                 <p className="font-semibold text-[#333]">{selectedName || "Unnamed"}</p>
                 <p className="text-sm text-[#777]">{selectedPhone}</p>
-                <form className="mt-3 flex gap-2" onSubmit={handleSaveName}>
+                <form className="mt-3 flex min-w-0 gap-2" onSubmit={handleSaveName}>
                   <input
                     ref={nameInputRef}
                     type="text"
                     value={nameInput}
                     onChange={(event) => setNameInput(event.target.value)}
                     placeholder="Add customer name"
-                    className="w-full max-w-[320px] rounded-md border border-[#ccc] px-3 py-2 text-sm"
+                    className="w-full min-w-0 max-w-[320px] rounded-md border border-[#ccc] px-3 py-2 text-sm"
                     maxLength={120}
                   />
                   <button
@@ -619,7 +619,10 @@ export default function AdminMessages() {
                 </form>
               </div>
 
-              <div ref={messageListRef} className="min-w-0 max-h-[420px] space-y-2 overflow-y-auto pr-1">
+              <div
+                ref={messageListRef}
+                className="min-w-0 max-h-[420px] space-y-2 overflow-y-auto overflow-x-hidden pr-1"
+              >
                 {conversationLoading ? (
                   <p className="text-sm text-[#666]">Loading messages...</p>
                 ) : messages.length === 0 ? (
@@ -628,7 +631,7 @@ export default function AdminMessages() {
                   messages.map((message) => (
                     <div
                       key={message._id}
-                      className={`max-w-[85%] break-words rounded-xl px-3 py-2 text-sm ${
+                      className={`max-w-full break-words rounded-xl px-3 py-2 text-sm sm:max-w-[85%] ${
                         message.direction === "outbound"
                           ? "ml-auto bg-[#c7668b] text-white"
                           : "mr-auto bg-[#f3f3f3] text-[#333]"
@@ -692,13 +695,13 @@ export default function AdminMessages() {
                 <div ref={messageEndRef} />
               </div>
 
-              <form className="mt-4 flex gap-2" onSubmit={handleReply}>
+              <form className="mt-4 flex min-w-0 gap-2" onSubmit={handleReply}>
                 <input
                   type="text"
                   value={replyText}
                   onChange={(event) => setReplyText(event.target.value)}
                   placeholder="Type reply..."
-                  className="flex-1 rounded-md border border-[#ccc] px-3 py-2"
+                  className="flex-1 min-w-0 rounded-md border border-[#ccc] px-3 py-2"
                   maxLength={1600}
                   required
                 />
