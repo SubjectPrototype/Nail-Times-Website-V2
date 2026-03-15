@@ -390,6 +390,8 @@ function Services() {
                     ? "min-h-[150px]"
                     : selectedDesktopCategory.title === "Nail Enhancements"
                       ? "min-h-[170px]"
+                      : selectedDesktopCategory.title === "Add-Ons"
+                        ? "min-h-[170px]"
                       : "min-h-[210px]"
                 }`}
               >
