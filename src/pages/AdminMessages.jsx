@@ -590,7 +590,7 @@ export default function AdminMessages() {
           )}
         </div>
 
-        <div className="rounded-lg bg-white p-4 shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
+        <div className="min-w-0 rounded-lg bg-white p-4 shadow-[0_4px_12px_rgba(0,0,0,0.08)]">
           {!selectedPhone ? (
             <p className="text-sm text-[#666]">Select a conversation.</p>
           ) : (
@@ -619,7 +619,7 @@ export default function AdminMessages() {
                 </form>
               </div>
 
-              <div ref={messageListRef} className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+              <div ref={messageListRef} className="min-w-0 max-h-[420px] space-y-2 overflow-y-auto pr-1">
                 {conversationLoading ? (
                   <p className="text-sm text-[#666]">Loading messages...</p>
                 ) : messages.length === 0 ? (
@@ -628,13 +628,13 @@ export default function AdminMessages() {
                   messages.map((message) => (
                     <div
                       key={message._id}
-                      className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
+                      className={`max-w-[85%] break-words rounded-xl px-3 py-2 text-sm ${
                         message.direction === "outbound"
                           ? "ml-auto bg-[#c7668b] text-white"
                           : "mr-auto bg-[#f3f3f3] text-[#333]"
                       }`}
                     >
-                      <p>{message.body}</p>
+                      <p className="whitespace-pre-wrap break-words">{message.body}</p>
                       {Array.isArray(message.media) && message.media.length > 0 && (
                         <div className="mt-2 space-y-1">
                           {message.media.map((item, mediaIndex) => {
