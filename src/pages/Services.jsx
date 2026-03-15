@@ -386,7 +386,11 @@ function Services() {
               <div
                 key={`${selectedDesktopCategory.title}-${service.name}-${index}`}
                 className={`flex flex-col rounded-xl border border-[#efdce4] bg-white p-4 ${
-                  selectedDesktopCategory.title === "Waxing" ? "min-h-[150px]" : "min-h-[210px]"
+                  selectedDesktopCategory.title === "Waxing"
+                    ? "min-h-[150px]"
+                    : selectedDesktopCategory.title === "Nail Enhancements"
+                      ? "min-h-[170px]"
+                      : "min-h-[210px]"
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
