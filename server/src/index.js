@@ -303,6 +303,91 @@ function getBookingTechnicians(selectedServices) {
   );
 }
 
+function getServiceDurationMinutes(item) {
+  const duration = Number(item?.duration_minutes ?? item?.durationMinutes ?? 0);
+  return Number.isFinite(duration) && duration > 0 ? duration : 0;
+}
+
+function sumDurationForTechnician(selectedServices, technicianName) {
+  if (!Array.isArray(selectedServices) || !technicianName) {
+    return 0;
+  }
+
+  const target = String(technicianName).toLowerCase();
+  return selectedServices.reduce((total, item) => {
+    const tech = String(item?.technician || "").trim().toLowerCase();
+    if (!tech) {
+      return total;
+    }
+    if (tech === target) {
+      return total + getServiceDurationMinutes(item);
+    }
+    if (tech === "any") {
+      return total + getServiceDurationMinutes(item);
+    }
+    return total;
+  }, 0);
+}
+
+function getTotalBookingDurationMinutes(booking, fallbackMinutes) {
+  const duration = Number(booking?.duration_minutes ?? fallbackMinutes);
+  return Number.isFinite(duration) && duration > 0 ? duration : fallbackMinutes;
+}
+
+function getBookingDurationForTechnician(booking, technicianName, fallbackMinutes) {
+  if (!technicianName) {
+    return getTotalBookingDurationMinutes(booking, fallbackMinutes);
+  }
+
+  if (bookingHasNoTechnicianInfo(booking.selected_services) || bookingHasAnyTechnician(booking.selected_services)) {
+    return getTotalBookingDurationMinutes(booking, fallbackMinutes);
+  }
+
+  const sum = sumDurationForTechnician(booking.selected_services, technicianName);
+  return sum > 0 ? sum : 0;
+}
+
+function buildBookingSegments(booking, fallbackMinutes) {
+  const start = new Date(booking.start_time);
+  if (Number.isNaN(start.getTime())) {
+    return [];
+  }
+
+  if (Array.isArray(booking.selected_services) && booking.selected_services.length > 0) {
+    let offsetMinutes = 0;
+    const segments = [];
+    booking.selected_services.forEach((item) => {
+      const minutes = getServiceDurationMinutes(item);
+      if (!minutes || minutes <= 0) {
+        return;
+      }
+      const tech = String(item?.technician || "any").trim() || "any";
+      const segmentStart = new Date(start.getTime() + offsetMinutes * 60 * 1000);
+      const segmentEnd = new Date(segmentStart.getTime() + minutes * 60 * 1000);
+      segments.push({
+        start_time: segmentStart,
+        end_time: segmentEnd,
+        technician: tech,
+      });
+      offsetMinutes += minutes;
+    });
+    return segments;
+  }
+
+  const totalMinutes = getTotalBookingDurationMinutes(booking, fallbackMinutes);
+  if (!totalMinutes || totalMinutes <= 0) {
+    return [];
+  }
+
+  return [
+    {
+      start_time: start,
+      end_time: new Date(start.getTime() + totalMinutes * 60 * 1000),
+      technician: "any",
+    },
+  ];
+}
+
 function bookingHasAnyTechnician(selectedServices) {
   return getBookingTechnicians(selectedServices).some((name) => name.toLowerCase() === "any");
 }
@@ -757,6 +842,10 @@ app.post("/api/bookings", async (req, res) => {
     const requestedTechnicians = getRequestedTechnicians(booking.selected_services);
     const requestedDurationMinutes = Number(booking.duration_minutes || defaultAppointmentMinutes);
     const endTime = new Date(startTime.getTime() + requestedDurationMinutes * 60 * 1000);
+    const requestedSegments = buildBookingSegments(
+      { ...booking, start_time: startTime },
+      defaultAppointmentMinutes
+    );
 
     const overlaps = await Appointment.aggregate([
       {
@@ -792,7 +881,39 @@ app.post("/api/bookings", async (req, res) => {
       },
     ]);
 
-    if (requestedTechnicians.length > 0) {
+    const existingSegments = overlaps.flatMap((item) => buildBookingSegments(item, defaultAppointmentMinutes));
+
+    if (requestedSegments.length > 0) {
+      for (const segment of requestedSegments) {
+        const requestedStart = new Date(segment.start_time);
+        const requestedEnd = new Date(segment.end_time);
+        const tech = String(segment.technician || "any").toLowerCase();
+
+        if (tech === "any") {
+          const overlappingCount = existingSegments.filter((existing) => {
+            const existingStart = new Date(existing.start_time);
+            const existingEnd = new Date(existing.end_time);
+            return existingStart < requestedEnd && existingEnd > requestedStart;
+          }).length;
+          if (overlappingCount >= technicianPoolSize) {
+            return res.status(409).json({ error: "Time slot overlaps with another appointment" });
+          }
+        } else {
+          const hasConflict = existingSegments.some((existing) => {
+            const existingTech = String(existing.technician || "any").toLowerCase();
+            if (existingTech !== tech && existingTech !== "any") {
+              return false;
+            }
+            const existingStart = new Date(existing.start_time);
+            const existingEnd = new Date(existing.end_time);
+            return existingStart < requestedEnd && existingEnd > requestedStart;
+          });
+          if (hasConflict) {
+            return res.status(409).json({ error: "Time slot overlaps with another appointment" });
+          }
+        }
+      }
+    } else if (requestedTechnicians.length > 0) {
       const hasSpecificConflict = overlaps.some((item) =>
         overlapsSpecificTechnician(item.selected_services, requestedTechnicians)
       );
@@ -839,6 +960,7 @@ app.get("/api/bookings/availability", async (req, res) => {
   const date = req.query.date;
   const dayStartUtcInput = String(req.query.day_start_utc || "").trim();
   const dayEndUtcInput = String(req.query.day_end_utc || "").trim();
+  const details = String(req.query.details || "").trim() === "1";
   const requestedTechnicians = String(req.query.technicians || "")
     .split(",")
     .map((item) => item.trim())
@@ -864,52 +986,56 @@ app.get("/api/bookings/availability", async (req, res) => {
       return res.status(400).json({ error: "Invalid date. Use YYYY-MM-DD" });
     }
 
-    const appointments = await Appointment.aggregate([
-      {
-        $addFields: {
-          effective_end_time: {
-            $ifNull: [
-              "$end_time",
-              {
-                $dateAdd: {
-                  startDate: "$start_time",
-                  unit: "minute",
-                  amount: { $ifNull: ["$duration_minutes", defaultAppointmentMinutes] },
-                },
-              },
-            ],
-          },
-        },
-      },
-      {
-        $match: {
-          status: { $ne: "cancelled" },
-          start_time: { $lt: dayEnd },
-          effective_end_time: { $gt: dayStart },
-        },
-      },
-      {
-        $project: {
-          _id: 0,
-          start_time: 1,
-          end_time: "$effective_end_time",
-          duration_minutes: { $ifNull: ["$duration_minutes", defaultAppointmentMinutes] },
-          status: 1,
-          selected_services: 1,
-        },
-      },
-      { $sort: { start_time: 1 } },
-    ]);
+    const appointments = await Appointment.find({
+      status: { $ne: "cancelled" },
+      start_time: { $lt: dayEnd },
+      end_time: { $gt: dayStart },
+    })
+      .sort({ start_time: 1 })
+      .lean();
+
+    if (details) {
+      const segments = [];
+      appointments.forEach((booking) => {
+        const bookingSegments = buildBookingSegments(booking, defaultAppointmentMinutes);
+        bookingSegments.forEach((segment) => {
+          if (segment.end_time <= dayStart || segment.start_time >= dayEnd) {
+            return;
+          }
+          segments.push({
+            start_time: segment.start_time,
+            end_time: segment.end_time,
+            technician: segment.technician || "any",
+          });
+        });
+      });
+      return res.json({ date, segments, technician_pool_size: technicianPoolSize });
+    }
 
     if (requestedTechnicians.length > 0) {
-      const filtered = appointments
-        .filter((item) => overlapsSpecificTechnician(item.selected_services, requestedTechnicians))
-        .map((item) => ({
-          start_time: item.start_time,
-          end_time: item.end_time,
-          duration_minutes: item.duration_minutes,
-          status: item.status,
-        }));
+      const filtered = [];
+      appointments.forEach((item) => {
+        if (!overlapsSpecificTechnician(item.selected_services, requestedTechnicians)) {
+          return;
+        }
+        requestedTechnicians.forEach((tech) => {
+          if (!overlapsSpecificTechnician(item.selected_services, [tech])) {
+            return;
+          }
+          const minutes = getBookingDurationForTechnician(item, tech, defaultAppointmentMinutes);
+          if (!minutes || minutes <= 0) {
+            return;
+          }
+          const startTime = new Date(item.start_time);
+          const endTime = new Date(startTime.getTime() + minutes * 60 * 1000);
+          filtered.push({
+            start_time: startTime,
+            end_time: endTime,
+            duration_minutes: minutes,
+            status: item.status,
+          });
+        });
+      });
       return res.json({ date, appointments: filtered });
     }
 

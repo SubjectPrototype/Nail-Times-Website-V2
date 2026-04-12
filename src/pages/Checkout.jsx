@@ -14,7 +14,8 @@ export default function Checkout() {
   const [weekOffset, setWeekOffset] = useState(0);
   const [notes, setNotes] = useState("");
   const [smsConsent, setSmsConsent] = useState(false);
-  const [bookedRanges, setBookedRanges] = useState([]);
+  const [bookedSegments, setBookedSegments] = useState([]);
+  const [technicianPoolSize, setTechnicianPoolSize] = useState(6);
   const [errorMessage, setErrorMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -129,36 +130,72 @@ export default function Checkout() {
     return startMinutes + availabilityDurationMinutes > closingMinutes;
   };
 
-  const isExactBookedSlot = (dateIso, timeValue) => {
-    if (!dateIso) return false;
-    const slotStart = getSlotDate(dateIso, timeValue);
-    const slotEnd = new Date(slotStart.getTime() + 15 * 60 * 1000);
-    return bookedRanges.some((range) => {
-      const rangeStart = new Date(range.start_time);
-      const rangeEnd = new Date(range.end_time);
-      return rangeStart < slotEnd && rangeEnd > slotStart;
-    });
-  };
+  const serviceSegments = useMemo(() => {
+    if (cartItems.length === 0) {
+      return [];
+    }
 
-  const isOverlapSlot = (dateIso, timeValue) => {
-    if (!dateIso) return false;
-    const slotStart = getSlotDate(dateIso, timeValue);
-    const slotEnd = new Date(slotStart.getTime() + availabilityDurationMinutes * 60 * 1000);
-    return bookedRanges.some((range) => {
-      const rangeStart = new Date(range.start_time);
-      const rangeEnd = new Date(range.end_time);
-      return rangeStart < slotEnd && rangeEnd > slotStart;
+    let offset = 0;
+    const segments = [];
+    cartItems.forEach((item) => {
+      const minutes = getItemDurationMinutes(item);
+      if (!minutes || minutes <= 0) {
+        return;
+      }
+      segments.push({
+        offsetMinutes: offset,
+        durationMinutes: minutes,
+        technician: item.technician || "Any",
+      });
+      offset += minutes;
     });
-  };
+    return segments;
+  }, [cartItems]);
 
   const getSlotAvailabilityStatus = (dateIso, timeValue) => {
     if (!dateIso) return "available";
-    if (isExactBookedSlot(dateIso, timeValue)) {
-      return "booked";
+    const baseStart = getSlotDate(dateIso, timeValue);
+    const segmentsToCheck =
+      serviceSegments.length > 0
+        ? serviceSegments
+        : [
+            {
+              offsetMinutes: 0,
+              durationMinutes: availabilityDurationMinutes,
+              technician: "Any",
+            },
+          ];
+
+    for (const segment of segmentsToCheck) {
+      const segStart = new Date(baseStart.getTime() + segment.offsetMinutes * 60 * 1000);
+      const segEnd = new Date(segStart.getTime() + segment.durationMinutes * 60 * 1000);
+      const tech = String(segment.technician || "Any").toLowerCase();
+
+      if (tech === "any") {
+        const overlappingCount = bookedSegments.filter((existing) => {
+          const existingStart = new Date(existing.start_time);
+          const existingEnd = new Date(existing.end_time);
+          return existingStart < segEnd && existingEnd > segStart;
+        }).length;
+        if (overlappingCount >= technicianPoolSize) {
+          return segment.offsetMinutes === 0 ? "booked" : "overlap";
+        }
+      } else {
+        const conflict = bookedSegments.some((existing) => {
+          const existingTech = String(existing.technician || "any").toLowerCase();
+          if (existingTech !== tech && existingTech !== "any") {
+            return false;
+          }
+          const existingStart = new Date(existing.start_time);
+          const existingEnd = new Date(existing.end_time);
+          return existingStart < segEnd && existingEnd > segStart;
+        });
+        if (conflict) {
+          return segment.offsetMinutes === 0 ? "booked" : "overlap";
+        }
+      }
     }
-    if (isOverlapSlot(dateIso, timeValue)) {
-      return "overlap";
-    }
+
     return "available";
   };
 
@@ -183,28 +220,29 @@ export default function Checkout() {
 
     const loadAvailability = async () => {
       if (!selectedDate) {
-        setBookedRanges([]);
+        setBookedSegments([]);
         return;
       }
 
       try {
-        const technicianParam =
-          selectedTechnicians.length > 0 ? `&technicians=${encodeURIComponent(selectedTechnicians.join(","))}` : "";
         const dayStartUtc = encodeURIComponent(new Date(`${selectedDate}T00:00:00`).toISOString());
         const dayEndUtc = encodeURIComponent(new Date(`${selectedDate}T23:59:59.999`).toISOString());
         const response = await fetch(
-          `${apiBaseUrl}/api/bookings/availability?date=${encodeURIComponent(selectedDate)}&day_start_utc=${dayStartUtc}&day_end_utc=${dayEndUtc}${technicianParam}`
+          `${apiBaseUrl}/api/bookings/availability?date=${encodeURIComponent(selectedDate)}&day_start_utc=${dayStartUtc}&day_end_utc=${dayEndUtc}&details=1`
         );
         if (!response.ok) {
           throw new Error("Failed to load availability");
         }
         const data = await response.json();
         if (!isCancelled) {
-          setBookedRanges(Array.isArray(data.appointments) ? data.appointments : []);
+          setBookedSegments(Array.isArray(data.segments) ? data.segments : []);
+          if (Number.isFinite(Number(data.technician_pool_size))) {
+            setTechnicianPoolSize(Number(data.technician_pool_size));
+          }
         }
       } catch (error) {
         if (!isCancelled) {
-          setBookedRanges([]);
+          setBookedSegments([]);
         }
       }
     };
@@ -213,14 +251,14 @@ export default function Checkout() {
     return () => {
       isCancelled = true;
     };
-  }, [apiBaseUrl, selectedDate, selectedTechnicians]);
+  }, [apiBaseUrl, selectedDate]);
 
   React.useEffect(() => {
     if (!selectedDate || !selectedTime) return;
     if (getSlotAvailabilityStatus(selectedDate, selectedTime) !== "available" || exceedsClosingTime(selectedDate, selectedTime)) {
       setSelectedTime("");
     }
-  }, [bookedRanges, availabilityDurationMinutes, selectedDate, selectedTime]);
+  }, [bookedSegments, availabilityDurationMinutes, selectedDate, selectedTime, serviceSegments, technicianPoolSize]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
