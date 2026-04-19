@@ -889,26 +889,28 @@ app.post("/api/bookings", async (req, res) => {
         const requestedEnd = new Date(segment.end_time);
         const tech = String(segment.technician || "any").toLowerCase();
 
-        if (tech === "any") {
-          const overlappingCount = existingSegments.filter((existing) => {
-            const existingStart = new Date(existing.start_time);
-            const existingEnd = new Date(existing.end_time);
-            return existingStart < requestedEnd && existingEnd > requestedStart;
-          }).length;
-          if (overlappingCount >= technicianPoolSize) {
-            return res.status(409).json({ error: "Time slot overlaps with another appointment" });
-          }
-        } else {
-          const hasConflict = existingSegments.some((existing) => {
+        // Count all overlapping segments (both specific techs and 'any') to check pool capacity
+        const overlappingCount = existingSegments.filter((existing) => {
+          const existingStart = new Date(existing.start_time);
+          const existingEnd = new Date(existing.end_time);
+          return existingStart < requestedEnd && existingEnd > requestedStart;
+        }).length;
+        if (overlappingCount >= technicianPoolSize) {
+          return res.status(409).json({ error: "Time slot overlaps with another appointment" });
+        }
+
+        // If this segment targets a specific tech, ensure that technician isn't already assigned
+        if (tech !== "any") {
+          const hasSameTechConflict = existingSegments.some((existing) => {
             const existingTech = String(existing.technician || "any").toLowerCase();
-            if (existingTech !== tech && existingTech !== "any") {
+            if (existingTech !== tech) {
               return false;
             }
             const existingStart = new Date(existing.start_time);
             const existingEnd = new Date(existing.end_time);
             return existingStart < requestedEnd && existingEnd > requestedStart;
           });
-          if (hasConflict) {
+          if (hasSameTechConflict) {
             return res.status(409).json({ error: "Time slot overlaps with another appointment" });
           }
         }
@@ -1015,24 +1017,25 @@ app.get("/api/bookings/availability", async (req, res) => {
     if (requestedTechnicians.length > 0) {
       const filtered = [];
       appointments.forEach((item) => {
+        // skip appointments that don't involve any of the requested technicians
         if (!overlapsSpecificTechnician(item.selected_services, requestedTechnicians)) {
           return;
         }
-        requestedTechnicians.forEach((tech) => {
-          if (!overlapsSpecificTechnician(item.selected_services, [tech])) {
-            return;
-          }
-          const minutes = getBookingDurationForTechnician(item, tech, defaultAppointmentMinutes);
-          if (!minutes || minutes <= 0) {
-            return;
-          }
-          const startTime = new Date(item.start_time);
-          const endTime = new Date(startTime.getTime() + minutes * 60 * 1000);
-          filtered.push({
-            start_time: startTime,
-            end_time: endTime,
-            duration_minutes: minutes,
-            status: item.status,
+
+        // build precise segments for this appointment (respects offsets and per-service technicians)
+        const bookingSegments = buildBookingSegments(item, defaultAppointmentMinutes);
+        bookingSegments.forEach((seg) => {
+          const segTech = String(seg.technician || "any").toLowerCase();
+          requestedTechnicians.forEach((tech) => {
+            const target = String(tech).toLowerCase();
+            if (segTech === "any" || segTech === target) {
+              filtered.push({
+                start_time: seg.start_time,
+                end_time: seg.end_time,
+                duration_minutes: Math.max(1, Math.round((new Date(seg.end_time).getTime() - new Date(seg.start_time).getTime()) / 60000)),
+                status: item.status,
+              });
+            }
           });
         });
       });

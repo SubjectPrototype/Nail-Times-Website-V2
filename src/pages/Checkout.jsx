@@ -171,26 +171,26 @@ export default function Checkout() {
       const segEnd = new Date(segStart.getTime() + segment.durationMinutes * 60 * 1000);
       const tech = String(segment.technician || "Any").toLowerCase();
 
-      if (tech === "any") {
-        const overlappingCount = bookedSegments.filter((existing) => {
-          const existingStart = new Date(existing.start_time);
-          const existingEnd = new Date(existing.end_time);
-          return existingStart < segEnd && existingEnd > segStart;
-        }).length;
-        if (overlappingCount >= technicianPoolSize) {
-          return segment.offsetMinutes === 0 ? "booked" : "overlap";
-        }
-      } else {
-        const conflict = bookedSegments.some((existing) => {
+      // First, check pool capacity: any overlapping segment (specific or 'any') counts
+      const overlappingCount = bookedSegments.filter((existing) => {
+        const existingStart = new Date(existing.start_time);
+        const existingEnd = new Date(existing.end_time);
+        return existingStart < segEnd && existingEnd > segStart;
+      }).length;
+      if (overlappingCount >= technicianPoolSize) {
+        return segment.offsetMinutes === 0 ? "booked" : "overlap";
+      }
+
+      // Then, if the segment targets a specific tech, ensure that tech isn't already assigned
+      if (tech !== "any") {
+        const hasSameTechConflict = bookedSegments.some((existing) => {
           const existingTech = String(existing.technician || "any").toLowerCase();
-          if (existingTech !== tech && existingTech !== "any") {
-            return false;
-          }
+          if (existingTech !== tech) return false; // ignore 'any' here; 'any' only contributes to capacity
           const existingStart = new Date(existing.start_time);
           const existingEnd = new Date(existing.end_time);
           return existingStart < segEnd && existingEnd > segStart;
         });
-        if (conflict) {
+        if (hasSameTechConflict) {
           return segment.offsetMinutes === 0 ? "booked" : "overlap";
         }
       }
