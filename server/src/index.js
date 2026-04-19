@@ -833,6 +833,15 @@ app.post("/api/bookings", async (req, res) => {
 
   const booking = parsed.data;
 
+  // Normalize selected services durations to ensure consistent integer minutes
+  if (Array.isArray(booking.selected_services) && booking.selected_services.length > 0) {
+    booking.selected_services = booking.selected_services.map((svc) => {
+      const duration = Number(svc?.duration_minutes ?? svc?.durationMinutes ?? 0);
+      const normalized = Number.isFinite(duration) && duration > 0 ? Math.round(duration) : 0;
+      return { ...svc, duration_minutes: normalized };
+    });
+  }
+
   try {
     const startTime = new Date(booking.start_time);
     if (Number.isNaN(startTime.getTime())) {
