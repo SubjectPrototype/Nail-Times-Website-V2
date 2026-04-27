@@ -171,7 +171,7 @@ function Services() {
       title: "Manicure",
       services: [
         { name: "Classic Manicure", price: 25, description: "Includes nail shaping, cuticle trim, and a polish finish for a clean, refreshed look." },
-        { name: "Spa Manicure", price: 30, description: "Pamper your hands with nail shaping, cuticle care, gentle exfoliation, a soothing hot towel, and a relaxing massage." },
+        { name: "Spa Manicure", price: 32, description: "Pamper your hands with nail shaping, cuticle care, gentle exfoliation, a soothing hot towel, and a relaxing massage." },
         { name: "Deluxe Spa Paraffin Manicure", price: 40, description: "An indulgent treatment with exfoliation, nail and cuticle care, hot towel, paraffin wax, and a rejuvenating massage." },
         { name: "Lavender Manicure", price: 45, description: "Relax with aromatic lavender sea salt and mask, hot towel, paraffin wax wrap, and soothing massage." },
         { name: "Aloe Vera Manicure", price: 47, description: "Infused with fresh aloe and citrus, this treatment heals and hydrates the skin, with hot towel, paraffin wax, and massage." },
@@ -184,7 +184,7 @@ function Services() {
       title: "Pedicure",
       services: [
         { name: "Classic Pedicure", price: 35, description: "Includes a relaxing foot soak, nail shaping, cuticle trimming, gentle buffering, and a heel scrub to smooth rough skin. Finished with your choice of polish for a clean, polished look." },
-        { name: "Spa Pedicure", price: 42, description: "Treat your feet to a rejuvenating experience with exfoliation to remove dry skin, a soothing hot towel wrap, and a relaxing massage to restore softness and relieve tension. Finished with your choice of polish for a refreshed, spa-perfect look." },
+        { name: "Spa Pedicure", price: 45, description: "Treat your feet to a rejuvenating experience with exfoliation to remove dry skin, a soothing hot towel wrap, and a relaxing massage to restore softness and relieve tension. Finished with your choice of polish for a refreshed, spa-perfect look." },
         { name: "Deluxe Spa Paraffin Pedicure", price: 52, description: "This treatment includes a soothing foot soak, exfoliation, nail and cuticle care, a hydrating mask, and a warm paraffin wax wrap to deeply moisturize and soften skin. Finished with a relaxing massage and your choice of polish for silky-smooth, beautiful feet." },
         { name: "Lavender Pedicure", price: 58, description: "Enjoy a relaxing lavender soak, gentle exfoliation, nail and cuticle care, and a hydrating mask. Finished with a stress-relieving massage and your choice of polish, leaving your feet soft, refreshed, and beautifully relaxed." },
         { name: "Aloe Vera Pedicure", price: 62, description: "Infused with natural aloe vera to help heal sunburn, reduce imperfections, and deeply soften the skin. Perfect for refreshing tired feet and leaving them smooth, hydrated, and rejuvenated." },
@@ -196,14 +196,14 @@ function Services() {
     {
       title: "Nail Enhancements",
       services: [
-        { name: "Gel Shellac Mani Color", price: 38, description: "French finish available ($45)" },
+        { name: "Gel Shellac Mani Color", price: 40, description: "French finish available ($47)" },
         { name: "Gel Shellac Pedi Color", price: 59, description: "French finish available ($67)" },
         { name: "Shellac w/o Mani Color", price: 32, description: "French finish available ($37)" },
         { name: "Shellac w/o Pedi Color", price: 37, description: "French finish available ($42)" },
         { name: "Dipping Powder Color", price: 48, description: "Natural finish (French $55)" },
-        { name: "Acrylic with Gel Polish", price: 59, description: "Durable and glossy finish (French $66)" },
-        { name: "Acrylics Full Set", price: 45, description: "Full acrylic application (Refill $35)" },
-        { name: "Solar Pink & White Full Set", price: 58, description: "Two-tone pink and white (Refill $48)" },
+        { name: "Acrylic with Gel Polish Refill", price: 59, description: "Durable and glossy finish (French $66)" },
+        { name: "Acrylics Full Set", price: 46, description: "Full acrylic application (Refill $36)" },
+        { name: "Solar Pink & White Full Set", price: 58, description: "Two-tone pink and white (Refill $50)" },
         { name: "White Tip Full Set", price: 48, description: "Classic white tips (Refill $38)" },
         { name: "Polish Change Nails", price: 14, description: "Quick nail color refresh" },
         { name: "Polish Change Toes", price: 16, description: "Quick toe color refresh" },
