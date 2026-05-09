@@ -217,7 +217,7 @@ function Services() {
         { name: "Ingrown Nail Removal", price: 10, description: "Starts at $10 and up" },
         { name: "Machine Nail Filing", price: 10, description: "Starts at $10 and up" },
         { name: "Callus Removal Service", price: 22, description: "Focused callus removal treatment" },
-        { name: "Acrylic/Gel/Dipping Removal", price: 18, description: "Removal service for acrylic, gel, or dipping" },
+        { name: "Acrylic/Gel/Dipping Removal", price: 22, description: "Removal service for acrylic, gel, or dipping" },
       ],
     },
     {
