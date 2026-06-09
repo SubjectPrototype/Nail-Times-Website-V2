@@ -299,7 +299,7 @@ function Services() {
   };
 
   const technicians = [
-    { name: "Thuy", blockedValues: [] },
+    { name: "Thy", blockedValues: [] },
     { name: "Jenny", blockedValues: [1, 3] },
     { name: "Tina", blockedValues: [1, 3] },
     { name: "Cindy", blockedValues: [1] },
