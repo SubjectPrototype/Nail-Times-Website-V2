@@ -14,12 +14,15 @@ const {
   sendBookingConfirmedEmail,
   sendBookingCancelledEmail,
   sendAdminInboundMessageEmail,
+  sendGiftCardReceiptEmail,
 } = require("./email");
 const { requireAdmin } = require("./middleware/auth");
 const Appointment = require("./models/Appointment");
 const AdminOtp = require("./models/AdminOtp");
 const Message = require("./models/Message");
 const AdminContact = require("./models/AdminContact");
+const GiftCard = require("./models/GiftCard");
+const PrintJob = require("./models/PrintJob");
 
 const app = express();
 app.set("trust proxy", true);
@@ -51,6 +54,7 @@ const adminChatPresenceTtlMs = Number(process.env.ADMIN_CHAT_PRESENCE_TTL_MS || 
 const activeAdminChats = new Map();
 const validateTwilioWebhook = String(process.env.TWILIO_VALIDATE_WEBHOOK || "true").toLowerCase() !== "false";
 const technicianPoolSize = Number(process.env.TECHNICIAN_POOL_SIZE || 6);
+const printBridgeToken = String(process.env.PRINT_BRIDGE_TOKEN || "").trim();
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is required");
@@ -79,6 +83,21 @@ function normalizePhoneNumber(input) {
     return `+1${digits}`;
   }
   return digits ? `+${digits}` : "";
+}
+
+function requirePrintBridge(req, res, next) {
+  if (!printBridgeToken) {
+    return res.status(503).json({ error: "Print bridge is not configured" });
+  }
+
+  const receivedToken = String(req.headers["x-print-bridge-token"] || "");
+  const expectedBuffer = Buffer.from(printBridgeToken, "utf8");
+  const receivedBuffer = Buffer.from(receivedToken, "utf8");
+  if (expectedBuffer.length !== receivedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, receivedBuffer)) {
+    return res.status(401).json({ error: "Invalid print bridge token" });
+  }
+
+  return next();
 }
 
 function buildTwilioSignature(url, params, authToken) {
@@ -652,8 +671,82 @@ async function ensureAppointmentIndexes() {
   }
 }
 
+function oneYearAfter(date) {
+  const value = new Date(date || Date.now());
+  value.setUTCFullYear(value.getUTCFullYear() + 1);
+  return value;
+}
+
+async function expireGiftCards() {
+  return GiftCard.updateMany(
+    { expires_at: { $lte: new Date() }, status: { $ne: "expired" } },
+    { $set: { status: "expired" } }
+  );
+}
+
+async function initializeGiftCardExpirations() {
+  const cardsWithoutExpiration = await GiftCard.find(
+    { $or: [{ expires_at: { $exists: false } }, { expires_at: null }] },
+    { _id: 1, created_at: 1 }
+  ).lean();
+
+  if (cardsWithoutExpiration.length > 0) {
+    await GiftCard.bulkWrite(
+      cardsWithoutExpiration.map((card) => ({
+        updateOne: {
+          filter: { _id: card._id },
+          update: { $set: { expires_at: oneYearAfter(card.created_at) } },
+        },
+      }))
+    );
+  }
+
+  const cardsWithoutReceipt = await GiftCard.find(
+    {
+      $or: [
+        { receipt_number: { $exists: false } },
+        { receipt_number: null },
+        { issued_amount_cents: { $exists: false } },
+      ],
+    },
+    { _id: 1, code: 1, transactions: 1 }
+  ).lean();
+
+  if (cardsWithoutReceipt.length > 0) {
+    await GiftCard.bulkWrite(
+      cardsWithoutReceipt.map((card) => {
+        const initialTransaction = (card.transactions || []).find(
+          (transaction) => transaction.type === "credit" && transaction.note === "Initial balance"
+        );
+        return {
+          updateOne: {
+            filter: { _id: card._id },
+            update: {
+              $set: {
+                receipt_number: `R-${card.code}`,
+                issued_amount_cents: Number(initialTransaction?.amount_cents || 0),
+              },
+            },
+          },
+        };
+      })
+    );
+  }
+
+  await expireGiftCards();
+}
+
 connectDb()
-  .then(() => ensureAppointmentIndexes())
+  .then(async () => {
+    await ensureAppointmentIndexes();
+    await initializeGiftCardExpirations();
+    const giftCardExpirationTimer = setInterval(() => {
+      expireGiftCards().catch((error) => {
+        console.error("Failed to update expired gift cards:", error.message || error);
+      });
+    }, 60 * 60 * 1000);
+    giftCardExpirationTimer.unref();
+  })
   .catch((error) => {
     console.error("Failed to connect to MongoDB", error);
     process.exit(1);
@@ -1075,6 +1168,336 @@ app.get("/api/admin/bookings", requireAdmin, async (req, res) => {
   }
 });
 
+function giftCardCode(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9-]/g, "");
+}
+
+function generateGiftCardCode() {
+  const value = crypto.randomBytes(4).toString("hex").toUpperCase();
+  return `GC-${value.slice(0, 4)}-${value.slice(4)}`;
+}
+
+function generateGiftCardReceiptNumber() {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return `R-${date}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+}
+
+function amountToCents(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return null;
+  }
+  return Math.round(amount * 100);
+}
+
+const giftCardFieldsSchema = z.object({
+  code: z.string().trim().max(40).optional(),
+  customer_name: z.string().trim().min(1).max(120),
+  customer_email: z.string().trim().email().max(200).or(z.literal("")).optional(),
+  customer_phone: z.string().trim().max(40).optional(),
+  notes: z.string().trim().max(1000).optional(),
+  status: z.enum(["active", "inactive", "expired"]).optional(),
+});
+
+app.get("/api/admin/gift-cards", requireAdmin, async (req, res) => {
+  try {
+    await expireGiftCards();
+    const cards = await GiftCard.find({}).sort({ updated_at: -1 }).lean();
+    return res.json(cards);
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to load gift cards" });
+  }
+});
+
+app.post("/api/admin/gift-cards", requireAdmin, async (req, res) => {
+  const parsed = giftCardFieldsSchema.safeParse(req.body || {});
+  const initialBalanceValue = req.body?.initial_balance;
+  const initialBalanceAmount = initialBalanceValue === "" || initialBalanceValue === undefined
+    ? 0
+    : Number(initialBalanceValue);
+  const initialBalanceCents = Number.isFinite(initialBalanceAmount) && initialBalanceAmount >= 0
+    ? Math.round(initialBalanceAmount * 100)
+    : null;
+
+  if (!parsed.success || initialBalanceCents === null) {
+    return res.status(400).json({ error: "Enter valid gift card details and balance" });
+  }
+
+  try {
+    const code = giftCardCode(parsed.data.code) || generateGiftCardCode();
+    if (code.length < 4) {
+      return res.status(400).json({ error: "Gift card code must be at least 4 characters" });
+    }
+
+    const transactions = initialBalanceCents > 0
+      ? [{
+          type: "credit",
+          amount_cents: initialBalanceCents,
+          balance_after_cents: initialBalanceCents,
+          note: "Initial balance",
+          created_by: req.admin?.email || "Admin",
+        }]
+      : [];
+
+    const card = await GiftCard.create({
+      ...parsed.data,
+      code,
+      receipt_number: generateGiftCardReceiptNumber(),
+      issued_amount_cents: initialBalanceCents,
+      status: parsed.data.status === "inactive" ? "inactive" : "active",
+      expires_at: oneYearAfter(new Date()),
+      balance_cents: initialBalanceCents,
+      transactions,
+    });
+    return res.status(201).json(card);
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({ error: "That gift card code already exists" });
+    }
+    return res.status(500).json({ error: "Failed to create gift card" });
+  }
+});
+
+app.patch("/api/admin/gift-cards/:id", requireAdmin, async (req, res) => {
+  const parsed = giftCardFieldsSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Enter valid gift card details" });
+  }
+
+  try {
+    const existingCard = await GiftCard.findById(req.params.id);
+    if (!existingCard) {
+      return res.status(404).json({ error: "Gift card not found" });
+    }
+
+    const expirationDate = existingCard.expires_at || oneYearAfter(existingCard.created_at);
+    const isExpired = expirationDate <= new Date();
+    if (parsed.data.status === "expired" && !isExpired) {
+      return res.status(400).json({ error: "Gift cards become expired automatically" });
+    }
+
+    const updates = {
+      ...parsed.data,
+      code: giftCardCode(parsed.data.code),
+      status: isExpired ? "expired" : parsed.data.status,
+      expires_at: expirationDate,
+    };
+    if (updates.code.length < 4) {
+      return res.status(400).json({ error: "Gift card code must be at least 4 characters" });
+    }
+    const card = await GiftCard.findByIdAndUpdate(req.params.id, updates, { new: true, runValidators: true });
+    if (!card) {
+      return res.status(404).json({ error: "Gift card not found" });
+    }
+    return res.json(card);
+  } catch (error) {
+    if (error?.code === 11000) {
+      return res.status(409).json({ error: "That gift card code already exists" });
+    }
+    return res.status(500).json({ error: "Failed to update gift card" });
+  }
+});
+
+app.post("/api/admin/gift-cards/:id/transactions", requireAdmin, async (req, res) => {
+  const type = req.body?.type;
+  const amountCents = amountToCents(req.body?.amount);
+  const note = String(req.body?.note || "").trim();
+
+  if (!["credit", "debit"].includes(type) || !amountCents || note.length > 500) {
+    return res.status(400).json({ error: "Enter a valid transaction type and amount" });
+  }
+
+  try {
+    const card = await GiftCard.findById(req.params.id);
+    if (!card) {
+      return res.status(404).json({ error: "Gift card not found" });
+    }
+    const expirationDate = card.expires_at || oneYearAfter(card.created_at);
+    if (!card.expires_at) {
+      card.expires_at = expirationDate;
+    }
+    if (expirationDate <= new Date()) {
+      if (card.status !== "expired") {
+        card.status = "expired";
+        await card.save();
+      }
+      return res.status(409).json({ error: "Expired gift cards cannot be used" });
+    }
+    if (card.status !== "active") {
+      return res.status(409).json({ error: "Inactive gift cards cannot be used" });
+    }
+
+    const nextBalance = type === "credit"
+      ? card.balance_cents + amountCents
+      : card.balance_cents - amountCents;
+    if (nextBalance < 0) {
+      return res.status(409).json({ error: "Transaction exceeds the available balance" });
+    }
+
+    card.balance_cents = nextBalance;
+    card.transactions.push({
+      type,
+      amount_cents: amountCents,
+      balance_after_cents: nextBalance,
+      note: note || (type === "credit" ? "Balance added" : "Gift card redeemed"),
+      created_by: req.admin?.email || "Admin",
+    });
+    await card.save();
+    return res.status(201).json(card);
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to record transaction" });
+  }
+});
+
+app.post("/api/admin/gift-cards/:id/receipt", requireAdmin, async (req, res) => {
+  const parsed = z.object({ channel: z.enum(["email", "text", "printer"]) }).safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Choose email, text, or printer delivery" });
+  }
+
+  try {
+    const card = await GiftCard.findById(req.params.id);
+    if (!card) {
+      return res.status(404).json({ error: "Gift card not found" });
+    }
+
+    if (parsed.data.channel === "printer") {
+      if (!printBridgeToken) {
+        return res.status(503).json({ error: "Salon printer bridge is not configured" });
+      }
+      const job = await PrintJob.create({
+        type: "gift_card_receipt",
+        payload: {
+          receipt_number: card.receipt_number,
+          customer_name: card.customer_name,
+          code: card.code,
+          issued_amount_cents: card.issued_amount_cents,
+          created_at: card.created_at,
+          expires_at: card.expires_at,
+        },
+        requested_by: req.admin?.email || "Admin",
+      });
+      return res.status(202).json({
+        ok: true,
+        print_job_id: job._id,
+        message: "Receipt queued for the salon printer",
+      });
+    }
+
+    if (parsed.data.channel === "email") {
+      if (!card.customer_email) {
+        return res.status(400).json({ error: "Add a customer email before sending this receipt" });
+      }
+      const result = await sendGiftCardReceiptEmail({ card });
+      if (result.skipped) {
+        return res.status(503).json({ error: result.reason });
+      }
+      return res.json({ ok: true, message: `Receipt emailed to ${card.customer_email}` });
+    }
+
+    if (!card.customer_phone) {
+      return res.status(400).json({ error: "Add a customer phone number before texting this receipt" });
+    }
+    const message = [
+      "Nail Times Gift Card Receipt",
+      `Receipt: ${card.receipt_number}`,
+      `Gift card: ${card.code}`,
+      `Amount: $${(Number(card.issued_amount_cents || 0) / 100).toFixed(2)}`,
+      `Issued: ${formatBookingDateTime(card.created_at)}`,
+      `Expires: ${formatBookingDateTime(card.expires_at)}`,
+      "Present this code when redeeming.",
+    ].join("\n");
+    await sendSmsWithTwilio({ to: card.customer_phone, body: message });
+    return res.json({ ok: true, message: `Receipt texted to ${card.customer_phone}` });
+  } catch (error) {
+    console.error("Failed to deliver gift card receipt", error.message || error);
+    return res.status(500).json({ error: error.message || "Failed to deliver gift card receipt" });
+  }
+});
+
+app.get("/api/print-bridge/jobs/next", requirePrintBridge, async (req, res) => {
+  try {
+    const now = new Date();
+    const leaseToken = crypto.randomBytes(24).toString("hex");
+    const job = await PrintJob.findOneAndUpdate(
+      {
+        type: "gift_card_receipt",
+        attempts: { $lt: 5 },
+        $or: [
+          { status: "queued" },
+          { status: "printing", lease_until: { $lte: now } },
+        ],
+      },
+      {
+        $set: {
+          status: "printing",
+          lease_token: leaseToken,
+          lease_until: new Date(now.getTime() + 60 * 1000),
+          error: "",
+        },
+        $inc: { attempts: 1 },
+      },
+      { new: true, sort: { created_at: 1 } }
+    ).lean();
+
+    if (!job) {
+      return res.status(204).send();
+    }
+    return res.json({
+      id: job._id,
+      type: job.type,
+      payload: job.payload,
+      lease_token: leaseToken,
+    });
+  } catch (error) {
+    console.error("Failed to lease print job", error.message || error);
+    return res.status(500).json({ error: "Failed to retrieve print job" });
+  }
+});
+
+app.post("/api/print-bridge/jobs/:id/complete", requirePrintBridge, async (req, res) => {
+  const parsed = z.object({
+    lease_token: z.string().min(1),
+    success: z.boolean(),
+    error: z.string().trim().max(1000).optional(),
+  }).safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid print completion payload" });
+  }
+
+  try {
+    const updates = parsed.data.success
+      ? { status: "printed", printed_at: new Date(), error: "", lease_token: null, lease_until: null }
+      : { status: "failed", error: parsed.data.error || "Printer rejected the job", lease_token: null, lease_until: null };
+    const job = await PrintJob.findOneAndUpdate(
+      { _id: req.params.id, status: "printing", lease_token: parsed.data.lease_token },
+      { $set: updates },
+      { new: true }
+    ).lean();
+    if (!job) {
+      return res.status(409).json({ error: "Print job lease is no longer valid" });
+    }
+    return res.json({ ok: true, status: job.status });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to complete print job" });
+  }
+});
+
+app.delete("/api/admin/gift-cards/:id", requireAdmin, async (req, res) => {
+  try {
+    const card = await GiftCard.findByIdAndDelete(req.params.id);
+    if (!card) {
+      return res.status(404).json({ error: "Gift card not found" });
+    }
+    return res.json({ ok: true });
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to delete gift card" });
+  }
+});
+
 app.get("/api/admin/messages/groups", requireAdmin, async (req, res) => {
   try {
     const groups = await Message.aggregate([
@@ -1489,4 +1912,3 @@ app.post("/api/admin/messages/presence", requireAdmin, async (req, res) => {
 app.listen(port, () => {
   console.log(`Backend listening on ${port}`);
 });
-

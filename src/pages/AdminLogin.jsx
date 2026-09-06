@@ -40,7 +40,11 @@ export default function AdminLogin() {
 
       setStep("otp");
     } catch (error) {
-      setErrorMessage(error.message || "Login failed");
+      setErrorMessage(
+        error instanceof TypeError
+          ? `Cannot reach the admin server at ${apiBaseUrl}. Start the backend and try again.`
+          : error.message || "Login failed"
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -69,7 +73,11 @@ export default function AdminLogin() {
       localStorage.setItem("adminToken", data.token);
       navigate("/admin");
     } catch (error) {
-      setErrorMessage(error.message || "Verification failed");
+      setErrorMessage(
+        error instanceof TypeError
+          ? `Cannot reach the admin server at ${apiBaseUrl}. Start the backend and try again.`
+          : error.message || "Verification failed"
+      );
     } finally {
       setIsSubmitting(false);
     }

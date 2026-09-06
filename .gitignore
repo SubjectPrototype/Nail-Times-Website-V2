@@ -15,6 +15,7 @@ coverage/
 .env.*
 server/.env
 !server/.env.example
+!printer-bridge/.env.example
 
 # logs
 npm-debug.log*

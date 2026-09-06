@@ -406,6 +406,9 @@ export default function AdminDashboard() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-semibold text-[#c7668b]">Admin Bookings</h1>
         <div className="flex items-center gap-2">
+          <Link className="rounded-md border border-[#333] px-3 py-2 text-sm" to="/admin/gift-cards">
+            Gift Cards
+          </Link>
           <Link className="rounded-md border border-[#333] px-3 py-2 text-sm" to="/admin/messages">
             Messages
           </Link>

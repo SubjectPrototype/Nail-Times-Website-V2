@@ -17,6 +17,7 @@
 - `DEFAULT_APPOINTMENT_MINUTES` (default `60`)
 - `ADMIN_2FA_ENABLED` (`true` to require OTP, default `false` for direct admin login)
 - `BUSINESS_TIMEZONE` (default `America/Chicago`, used for SMS/email booking time formatting)
+- `PRINT_BRIDGE_TOKEN` (required for direct printing; use the same long random secret in the salon printer bridge)
 
 ## Twilio env
 - `TWILIO_ACCOUNT_SID`

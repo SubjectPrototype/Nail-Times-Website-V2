@@ -7,6 +7,7 @@ import BookingCancel from "./pages/BookingCancel";
 import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminMessages from "./pages/AdminMessages";
+import AdminGiftCards from "./pages/AdminGiftCards";
 import Navbar from "./components/Navbar";
 import CartDrawer from "./components/CartDrawer";
 import floralBg from "./assets/floral-bg.jpg";
@@ -65,6 +66,14 @@ function App() {
           element={
             <AdminRoute>
               <AdminMessages />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/gift-cards"
+          element={
+            <AdminRoute>
+              <AdminGiftCards />
             </AdminRoute>
           }
         />

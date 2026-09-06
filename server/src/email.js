@@ -9,6 +9,67 @@ function formatBookingDateTime(dateInput) {
   });
 }
 
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function formatGiftCardMoney(cents) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(cents || 0) / 100);
+}
+
+async function sendGiftCardReceiptEmail({ card }) {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return { skipped: true, reason: "RESEND_API_KEY not set" };
+  }
+  if (!card.customer_email) {
+    throw new Error("This gift card does not have a customer email address");
+  }
+
+  const from = process.env.FROM_EMAIL || "Nail Shop <onboarding@resend.dev>";
+  const response = await fetch(RESEND_API_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: card.customer_email,
+      subject: `Nail Times Gift Card Receipt ${card.receipt_number}`,
+      html: `
+        <div style="max-width:600px;margin:0 auto;font-family:Arial,sans-serif;color:#333">
+          <h1 style="color:#c7668b;margin-bottom:4px">Nail Times</h1>
+          <h2 style="margin-top:0">Gift Card Receipt</h2>
+          <p>Hi ${escapeHtml(card.customer_name)},</p>
+          <p>Thank you for your gift card purchase. Please keep this receipt and gift card code.</p>
+          <table style="width:100%;border-collapse:collapse">
+            <tbody>
+              <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Receipt</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(card.receipt_number)}</td></tr>
+              <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Gift Card Code</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(card.code)}</td></tr>
+              <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Original Amount</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatGiftCardMoney(card.issued_amount_cents)}</td></tr>
+              <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Date Issued</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatBookingDateTime(card.created_at)}</td></tr>
+              <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Expiration Date</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatBookingDateTime(card.expires_at)}</td></tr>
+            </tbody>
+          </table>
+          <p style="margin-top:24px">Present the gift card code when redeeming at Nail Times.</p>
+        </div>
+      `,
+    }),
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.message || "Failed to send gift card receipt email");
+  }
+  return { sent: true };
+}
+
 async function sendBookingEmails({ booking, adminEmail }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -270,4 +331,5 @@ module.exports = {
   sendBookingConfirmedEmail,
   sendBookingCancelledEmail,
   sendAdminInboundMessageEmail,
+  sendGiftCardReceiptEmail,
 };
