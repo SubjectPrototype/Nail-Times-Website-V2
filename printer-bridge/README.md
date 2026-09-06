@@ -5,10 +5,12 @@ This process runs on a Windows computer inside the salon network. It polls the h
 ## Setup
 
 1. Copy `printer-bridge/.env.example` to `printer-bridge/.env`.
-2. Set `BRIDGE_API_URL` to the deployed backend URL.
+2. Set `BRIDGE_API_URL` to the real deployed backend URL, such as `https://your-service.onrender.com` (not the website/frontend URL).
 3. Generate a long random value for `PRINT_BRIDGE_TOKEN` and use the same value in the deployed backend environment.
 4. Keep `PRINTER_IP=10.0.0.101` and `PRINTER_PORT=9100` for the salon printer.
 5. Start the bridge from the project root with `npm run printer-bridge`.
+
+Keep that terminal window open. A queued job only prints while this bridge process is running. A successful startup shows the backend URL followed by `10.0.0.101:9100`; configuration and polling errors appear in the same window.
 
 The confirmed printer is a GoCheckIn MHT-P80A with 80mm paper and an Ethernet connection on TCP port `9100`. The bridge sends standard ESC/POS receipt data directly to that socket.
 

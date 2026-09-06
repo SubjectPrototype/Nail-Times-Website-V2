@@ -31,8 +31,23 @@ const socketTimeoutMs = Math.max(1000, Number(process.env.PRINTER_TIMEOUT_MS || 
 const autoCut = String(process.env.PRINTER_AUTO_CUT || "true").toLowerCase() !== "false";
 const businessTimeZone = process.env.BUSINESS_TIMEZONE || "America/Chicago";
 
-if (!apiUrl || !bridgeToken) {
-  console.error("BRIDGE_API_URL and PRINT_BRIDGE_TOKEN are required in printer-bridge/.env");
+let parsedApiUrl;
+try {
+  parsedApiUrl = new URL(apiUrl);
+} catch {
+  parsedApiUrl = null;
+}
+
+if (
+  !parsedApiUrl
+  || !["http:", "https:"].includes(parsedApiUrl.protocol)
+  || parsedApiUrl.hostname === "your-backend.example.com"
+) {
+  console.error("BRIDGE_API_URL must be the real public URL of the Nail Times backend in printer-bridge/.env");
+  process.exit(1);
+}
+if (!bridgeToken || bridgeToken.includes("use_the_same_long_random_secret")) {
+  console.error("PRINT_BRIDGE_TOKEN must be set in printer-bridge/.env and match the backend setting");
   process.exit(1);
 }
 if (!Number.isInteger(printerPort) || printerPort < 1 || printerPort > 65535) {
