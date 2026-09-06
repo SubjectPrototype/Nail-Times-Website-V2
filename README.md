@@ -100,7 +100,7 @@ See `printer-bridge/README.md` for setup. After configuration, run:
 npm run printer-bridge
 ```
 
-The initial printer defaults are IP `10.0.0.101`, TCP port `9100`, and 80mm paper. Confirm the port and printer model before relying on direct printing in production.
+The configured printer is a GoCheckIn MHT-P80A at `10.0.0.101`, using TCP port `9100` and 80mm paper.
 
 ## Common Git Workflow
 

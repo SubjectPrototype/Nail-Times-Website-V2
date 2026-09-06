@@ -1185,6 +1185,11 @@ function generateGiftCardReceiptNumber() {
   return `R-${date}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 }
 
+function generateGiftCardTransactionReceiptNumber() {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return `T-${date}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+}
+
 function amountToCents(value) {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -1339,6 +1344,7 @@ app.post("/api/admin/gift-cards/:id/transactions", requireAdmin, async (req, res
 
     card.balance_cents = nextBalance;
     card.transactions.push({
+      receipt_number: generateGiftCardTransactionReceiptNumber(),
       type,
       amount_cents: amountCents,
       balance_after_cents: nextBalance,
@@ -1346,14 +1352,19 @@ app.post("/api/admin/gift-cards/:id/transactions", requireAdmin, async (req, res
       created_by: req.admin?.email || "Admin",
     });
     await card.save();
-    return res.status(201).json(card);
+    const responseCard = card.toObject();
+    responseCard.transaction_receipt = responseCard.transactions[responseCard.transactions.length - 1];
+    return res.status(201).json(responseCard);
   } catch (error) {
     return res.status(500).json({ error: "Failed to record transaction" });
   }
 });
 
 app.post("/api/admin/gift-cards/:id/receipt", requireAdmin, async (req, res) => {
-  const parsed = z.object({ channel: z.enum(["email", "text", "printer"]) }).safeParse(req.body || {});
+  const parsed = z.object({
+    channel: z.enum(["email", "text", "printer"]),
+    transaction_id: z.string().optional(),
+  }).safeParse(req.body || {});
   if (!parsed.success) {
     return res.status(400).json({ error: "Choose email, text, or printer delivery" });
   }
@@ -1364,6 +1375,19 @@ app.post("/api/admin/gift-cards/:id/receipt", requireAdmin, async (req, res) => 
       return res.status(404).json({ error: "Gift card not found" });
     }
 
+    const transaction = parsed.data.transaction_id
+      ? card.transactions.id(parsed.data.transaction_id)
+      : null;
+    if (parsed.data.transaction_id && !transaction) {
+      return res.status(404).json({ error: "Gift card transaction not found" });
+    }
+    const balanceBeforeCents = transaction
+      ? transaction.type === "debit"
+        ? transaction.balance_after_cents + transaction.amount_cents
+        : transaction.balance_after_cents - transaction.amount_cents
+      : undefined;
+    const receiptNumber = transaction?.receipt_number || card.receipt_number;
+
     if (parsed.data.channel === "printer") {
       if (!printBridgeToken) {
         return res.status(503).json({ error: "Salon printer bridge is not configured" });
@@ -1371,12 +1395,19 @@ app.post("/api/admin/gift-cards/:id/receipt", requireAdmin, async (req, res) => 
       const job = await PrintJob.create({
         type: "gift_card_receipt",
         payload: {
-          receipt_number: card.receipt_number,
+          receipt_kind: transaction ? "transaction" : "issuance",
+          receipt_number: receiptNumber,
           customer_name: card.customer_name,
           code: card.code,
           issued_amount_cents: card.issued_amount_cents,
           created_at: card.created_at,
           expires_at: card.expires_at,
+          transaction_type: transaction?.type,
+          transaction_amount_cents: transaction?.amount_cents,
+          balance_before_cents: balanceBeforeCents,
+          balance_after_cents: transaction?.balance_after_cents,
+          transaction_note: transaction?.note,
+          transaction_created_at: transaction?.created_at,
         },
         requested_by: req.admin?.email || "Admin",
       });
@@ -1391,7 +1422,7 @@ app.post("/api/admin/gift-cards/:id/receipt", requireAdmin, async (req, res) => 
       if (!card.customer_email) {
         return res.status(400).json({ error: "Add a customer email before sending this receipt" });
       }
-      const result = await sendGiftCardReceiptEmail({ card });
+      const result = await sendGiftCardReceiptEmail({ card, transaction });
       if (result.skipped) {
         return res.status(503).json({ error: result.reason });
       }
@@ -1401,15 +1432,27 @@ app.post("/api/admin/gift-cards/:id/receipt", requireAdmin, async (req, res) => 
     if (!card.customer_phone) {
       return res.status(400).json({ error: "Add a customer phone number before texting this receipt" });
     }
-    const message = [
-      "Nail Times Gift Card Receipt",
-      `Receipt: ${card.receipt_number}`,
-      `Gift card: ${card.code}`,
-      `Amount: $${(Number(card.issued_amount_cents || 0) / 100).toFixed(2)}`,
-      `Issued: ${formatBookingDateTime(card.created_at)}`,
-      `Expires: ${formatBookingDateTime(card.expires_at)}`,
-      "Present this code when redeeming.",
-    ].join("\n");
+    const message = transaction
+      ? [
+          "Nail Times Gift Card Transaction Receipt",
+          `Receipt: ${receiptNumber}`,
+          `Gift card: ${card.code}`,
+          `Transaction: ${transaction.type === "debit" ? "Redeemed" : "Added"}`,
+          `Amount: $${(Number(transaction.amount_cents || 0) / 100).toFixed(2)}`,
+          `Previous balance: $${(Number(balanceBeforeCents || 0) / 100).toFixed(2)}`,
+          `New balance: $${(Number(transaction.balance_after_cents || 0) / 100).toFixed(2)}`,
+          `Date: ${formatBookingDateTime(transaction.created_at)}`,
+          transaction.note ? `Note: ${transaction.note}` : "",
+        ].filter(Boolean).join("\n")
+      : [
+          "Nail Times Gift Card Receipt",
+          `Receipt: ${card.receipt_number}`,
+          `Gift card: ${card.code}`,
+          `Amount: $${(Number(card.issued_amount_cents || 0) / 100).toFixed(2)}`,
+          `Issued: ${formatBookingDateTime(card.created_at)}`,
+          `Expires: ${formatBookingDateTime(card.expires_at)}`,
+          "Present this code when redeeming.",
+        ].join("\n");
     await sendSmsWithTwilio({ to: card.customer_phone, body: message });
     return res.json({ ok: true, message: `Receipt texted to ${card.customer_phone}` });
   } catch (error) {

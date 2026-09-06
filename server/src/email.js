@@ -22,7 +22,7 @@ function formatGiftCardMoney(cents) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(cents || 0) / 100);
 }
 
-async function sendGiftCardReceiptEmail({ card }) {
+async function sendGiftCardReceiptEmail({ card, transaction }) {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     return { skipped: true, reason: "RESEND_API_KEY not set" };
@@ -32,6 +32,28 @@ async function sendGiftCardReceiptEmail({ card }) {
   }
 
   const from = process.env.FROM_EMAIL || "Nail Shop <onboarding@resend.dev>";
+  const isTransactionReceipt = Boolean(transaction);
+  const transactionLabel = transaction?.type === "debit" ? "Redeemed" : "Added";
+  const balanceBeforeCents = transaction
+    ? transaction.type === "debit"
+      ? transaction.balance_after_cents + transaction.amount_cents
+      : transaction.balance_after_cents - transaction.amount_cents
+    : 0;
+  const receiptNumber = transaction?.receipt_number || card.receipt_number;
+  const receiptRows = isTransactionReceipt
+    ? `
+      <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Transaction</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${transactionLabel}</td></tr>
+      <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Amount</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatGiftCardMoney(transaction.amount_cents)}</td></tr>
+      <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Previous Balance</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatGiftCardMoney(balanceBeforeCents)}</td></tr>
+      <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>New Balance</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatGiftCardMoney(transaction.balance_after_cents)}</td></tr>
+      <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Date</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatBookingDateTime(transaction.created_at)}</td></tr>
+      <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Note</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(transaction.note || "N/A")}</td></tr>
+    `
+    : `
+      <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Original Amount</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatGiftCardMoney(card.issued_amount_cents)}</td></tr>
+      <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Date Issued</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatBookingDateTime(card.created_at)}</td></tr>
+      <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Expiration Date</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatBookingDateTime(card.expires_at)}</td></tr>
+    `;
   const response = await fetch(RESEND_API_URL, {
     method: "POST",
     headers: {
@@ -41,20 +63,18 @@ async function sendGiftCardReceiptEmail({ card }) {
     body: JSON.stringify({
       from,
       to: card.customer_email,
-      subject: `Nail Times Gift Card Receipt ${card.receipt_number}`,
+      subject: `Nail Times Gift Card ${isTransactionReceipt ? "Transaction " : ""}Receipt ${receiptNumber}`,
       html: `
         <div style="max-width:600px;margin:0 auto;font-family:Arial,sans-serif;color:#333">
           <h1 style="color:#c7668b;margin-bottom:4px">Nail Times</h1>
-          <h2 style="margin-top:0">Gift Card Receipt</h2>
+          <h2 style="margin-top:0">Gift Card ${isTransactionReceipt ? "Transaction " : ""}Receipt</h2>
           <p>Hi ${escapeHtml(card.customer_name)},</p>
-          <p>Thank you for your gift card purchase. Please keep this receipt and gift card code.</p>
+          <p>${isTransactionReceipt ? "A transaction was completed on your gift card." : "Thank you for your gift card purchase. Please keep this receipt and gift card code."}</p>
           <table style="width:100%;border-collapse:collapse">
             <tbody>
-              <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Receipt</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(card.receipt_number)}</td></tr>
+              <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Receipt</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(receiptNumber)}</td></tr>
               <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Gift Card Code</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(card.code)}</td></tr>
-              <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Original Amount</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatGiftCardMoney(card.issued_amount_cents)}</td></tr>
-              <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Date Issued</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatBookingDateTime(card.created_at)}</td></tr>
-              <tr><td style="padding:8px;border-bottom:1px solid #eee"><strong>Expiration Date</strong></td><td style="padding:8px;border-bottom:1px solid #eee">${formatBookingDateTime(card.expires_at)}</td></tr>
+              ${receiptRows}
             </tbody>
           </table>
           <p style="margin-top:24px">Present the gift card code when redeeming at Nail Times.</p>

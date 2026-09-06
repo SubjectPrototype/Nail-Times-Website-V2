@@ -8,6 +8,7 @@ function oneYearFromNow() {
 
 const giftCardTransactionSchema = new mongoose.Schema(
   {
+    receipt_number: { type: String, trim: true, uppercase: true },
     type: { type: String, enum: ["credit", "debit"], required: true },
     amount_cents: { type: Number, required: true, min: 1 },
     balance_after_cents: { type: Number, required: true, min: 0 },

@@ -101,6 +101,7 @@ function formatDate(value) {
 }
 
 function buildGiftCardReceipt(payload) {
+  const isTransactionReceipt = payload.receipt_kind === "transaction";
   const chunks = [
     Buffer.from([0x1b, 0x40]),
     Buffer.from([0x1b, 0x61, 0x01]),
@@ -108,20 +109,31 @@ function buildGiftCardReceipt(payload) {
     Buffer.from([0x1d, 0x21, 0x11]),
     Buffer.from(center("NAIL TIMES"), "ascii"),
     Buffer.from([0x1d, 0x21, 0x00]),
-    Buffer.from(center("GIFT CARD RECEIPT"), "ascii"),
+    Buffer.from(center(isTransactionReceipt ? "TRANSACTION RECEIPT" : "GIFT CARD RECEIPT"), "ascii"),
     Buffer.from(center(payload.receipt_number), "ascii"),
     Buffer.from([0x1b, 0x45, 0x00]),
     Buffer.from([0x1b, 0x61, 0x00]),
     Buffer.from(`${"-".repeat(charactersPerLine)}\n`, "ascii"),
   ];
 
-  const rows = [
-    ...labeledLines("Customer", payload.customer_name),
-    ...labeledLines("Gift Card", payload.code),
-    ...labeledLines("Amount", formatMoney(payload.issued_amount_cents)),
-    ...labeledLines("Issued", formatDate(payload.created_at)),
-    ...labeledLines("Expires", formatDate(payload.expires_at)),
-  ];
+  const rows = isTransactionReceipt
+    ? [
+        ...labeledLines("Customer", payload.customer_name),
+        ...labeledLines("Gift Card", payload.code),
+        ...labeledLines("Transaction", payload.transaction_type === "debit" ? "Redeemed" : "Added"),
+        ...labeledLines("Amount", formatMoney(payload.transaction_amount_cents)),
+        ...labeledLines("Previous Balance", formatMoney(payload.balance_before_cents)),
+        ...labeledLines("New Balance", formatMoney(payload.balance_after_cents)),
+        ...labeledLines("Date", formatDate(payload.transaction_created_at)),
+        ...labeledLines("Note", payload.transaction_note || "N/A"),
+      ]
+    : [
+        ...labeledLines("Customer", payload.customer_name),
+        ...labeledLines("Gift Card", payload.code),
+        ...labeledLines("Amount", formatMoney(payload.issued_amount_cents)),
+        ...labeledLines("Issued", formatDate(payload.created_at)),
+        ...labeledLines("Expires", formatDate(payload.expires_at)),
+      ];
   chunks.push(Buffer.from(`${rows.join("\n")}\n${"-".repeat(charactersPerLine)}\n`, "ascii"));
   chunks.push(Buffer.from([0x1b, 0x61, 0x01]));
   chunks.push(Buffer.from(`${wrap("Present the gift card code when redeeming.").join("\n")}\n\n\n`, "ascii"));

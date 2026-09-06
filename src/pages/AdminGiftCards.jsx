@@ -81,11 +81,18 @@ export default function AdminGiftCards() {
   const [transaction, setTransaction] = useState({ type: "debit", amount: "", note: "" });
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [receiptCard, setReceiptCard] = useState(null);
+  const [receiptTransaction, setReceiptTransaction] = useState(null);
   const [receiptAction, setReceiptAction] = useState("");
   const [receiptFeedback, setReceiptFeedback] = useState(null);
 
   const selectedCard = cards.find((card) => card._id === selectedId) || null;
   const selectedStatus = getCardStatus(selectedCard, currentTime);
+  const receiptBalanceBeforeCents = receiptTransaction
+    ? receiptTransaction.type === "debit"
+      ? receiptTransaction.balance_after_cents + receiptTransaction.amount_cents
+      : receiptTransaction.balance_after_cents - receiptTransaction.amount_cents
+    : 0;
+  const visibleReceiptNumber = receiptTransaction?.receipt_number || receiptCard?.receipt_number;
 
   const filteredCards = useMemo(() => {
     const value = search.trim().toLowerCase();
@@ -240,6 +247,7 @@ export default function AdminGiftCards() {
       });
       setCards((current) => [card, ...current]);
       setSelectedId("");
+      setReceiptTransaction(null);
       setReceiptCard(card);
       setCreateForm(emptyCardForm);
       setShowCreate(false);
@@ -283,7 +291,9 @@ export default function AdminGiftCards() {
       });
       replaceCard(card);
       setTransaction((current) => ({ ...current, amount: "", note: "" }));
-      showMessage(transaction.type === "credit" ? "Balance added" : "Redemption recorded");
+      setReceiptFeedback(null);
+      setReceiptTransaction(card.transaction_receipt || card.transactions?.[card.transactions.length - 1] || null);
+      setReceiptCard(card);
     } catch (error) {
       setErrorMessage(error.message || "Failed to record transaction");
     } finally {
@@ -316,7 +326,7 @@ export default function AdminGiftCards() {
     try {
       const result = await apiRequest(`/api/admin/gift-cards/${receiptCard._id}/receipt`, {
         method: "POST",
-        body: JSON.stringify({ channel }),
+        body: JSON.stringify({ channel, transaction_id: receiptTransaction?._id }),
       });
       setReceiptFeedback({ type: "success", text: result.message || "Receipt sent" });
     } catch (error) {
@@ -328,6 +338,25 @@ export default function AdminGiftCards() {
 
   const handlePrintReceipt = () => {
     if (!receiptCard) return;
+    const balanceBeforeCents = receiptTransaction
+      ? receiptTransaction.type === "debit"
+        ? receiptTransaction.balance_after_cents + receiptTransaction.amount_cents
+        : receiptTransaction.balance_after_cents - receiptTransaction.amount_cents
+      : 0;
+    const receiptNumber = receiptTransaction?.receipt_number || receiptCard.receipt_number;
+    const receiptTitle = receiptTransaction ? "Gift Card Transaction Receipt" : "Gift Card Receipt";
+    const receiptDetails = receiptTransaction
+      ? `
+        <div class="row"><span class="label">Transaction</span><span>${receiptTransaction.type === "debit" ? "Redeemed" : "Added"}</span></div>
+        <div class="row"><span class="label">Amount</span><span>${formatMoney(receiptTransaction.amount_cents)}</span></div>
+        <div class="row"><span class="label">Previous Balance</span><span>${formatMoney(balanceBeforeCents)}</span></div>
+        <div class="row"><span class="label">New Balance</span><span>${formatMoney(receiptTransaction.balance_after_cents)}</span></div>
+        <div class="row"><span class="label">Date</span><span>${escapeReceiptHtml(formatDate(receiptTransaction.created_at))}</span></div>
+        <div class="row"><span class="label">Note</span><span>${escapeReceiptHtml(receiptTransaction.note || "—")}</span></div>`
+      : `
+        <div class="row"><span class="label">Original Amount</span><span>${formatMoney(receiptCard.issued_amount_cents)}</span></div>
+        <div class="row"><span class="label">Date Issued</span><span>${escapeReceiptHtml(formatDate(receiptCard.created_at))}</span></div>
+        <div class="row"><span class="label">Expiration Date</span><span>${escapeReceiptHtml(formatDate(receiptCard.expires_at))}</span></div>`;
     const printWindow = window.open("", "_blank", "width=720,height=850");
     if (!printWindow) {
       setErrorMessage("Allow pop-ups to print the receipt");
@@ -335,17 +364,15 @@ export default function AdminGiftCards() {
     }
 
     printWindow.document.write(`<!doctype html>
-      <html><head><title>${escapeReceiptHtml(receiptCard.receipt_number)} - Gift Card Receipt</title>
+      <html><head><title>${escapeReceiptHtml(receiptNumber)} - ${receiptTitle}</title>
       <style>
         *{box-sizing:border-box}html,body{width:3in;margin:0;padding:0}body{font-family:Arial,sans-serif;color:#111;background:#fff}.receipt{width:3in;margin:0 auto;padding:.18in}.brand{text-align:center;font-size:22px;font-weight:700;margin:0}.subtitle{text-align:center;font-size:14px;margin:3px 0 16px}.row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;border-bottom:1px dashed #999;padding:8px 0;font-size:11px;line-height:1.3}.row span:last-child{max-width:1.65in;text-align:right;overflow-wrap:anywhere}.label{font-weight:700}.code{font-family:monospace;font-size:14px;font-weight:700;letter-spacing:1px}.thanks{text-align:center;margin:18px 0 0;font-size:10px;line-height:1.4}.receipt-number{text-align:center;margin:0 0 10px;font-size:10px;color:#555}@media print{@page{size:3in 7in;margin:0}html,body{width:3in}.receipt{padding:.18in}}
       </style></head><body><div class="receipt">
-        <p class="brand">Nail Times</p><p class="subtitle">Gift Card Receipt</p>
-        <p class="receipt-number">${escapeReceiptHtml(receiptCard.receipt_number)}</p>
+        <p class="brand">Nail Times</p><p class="subtitle">${receiptTitle}</p>
+        <p class="receipt-number">${escapeReceiptHtml(receiptNumber)}</p>
         <div class="row"><span class="label">Customer</span><span>${escapeReceiptHtml(receiptCard.customer_name)}</span></div>
         <div class="row"><span class="label">Gift Card Code</span><span class="code">${escapeReceiptHtml(receiptCard.code)}</span></div>
-        <div class="row"><span class="label">Original Amount</span><span>${formatMoney(receiptCard.issued_amount_cents)}</span></div>
-        <div class="row"><span class="label">Date Issued</span><span>${escapeReceiptHtml(formatDate(receiptCard.created_at))}</span></div>
-        <div class="row"><span class="label">Expiration Date</span><span>${escapeReceiptHtml(formatDate(receiptCard.expires_at))}</span></div>
+        ${receiptDetails}
         <p class="thanks">Present the gift card code when redeeming at Nail Times.</p>
       </div></body></html>`);
     printWindow.document.close();
@@ -540,6 +567,7 @@ export default function AdminGiftCards() {
                       className="rounded-md border border-[#bbb] px-3 py-1.5 text-sm font-medium text-[#444] hover:bg-[#f7f7f7]"
                       onClick={() => {
                         setReceiptFeedback(null);
+                        setReceiptTransaction(null);
                         setReceiptCard(selectedCard);
                       }}
                     >
@@ -613,22 +641,35 @@ export default function AdminGiftCards() {
         <div className="fixed inset-x-0 bottom-0 top-[70px] z-[950] flex items-start justify-center overflow-hidden bg-black/55 p-3 sm:p-6" onMouseDown={() => setReceiptCard(null)}>
           <section className="flex max-h-full w-full max-w-[680px] flex-col overflow-hidden rounded-xl bg-white shadow-2xl" onMouseDown={(event) => event.stopPropagation()}>
             <div className="flex shrink-0 items-center justify-between border-b border-[#eee] bg-white px-5 py-3 sm:px-6">
-              <h2 className="text-lg font-semibold text-[#333]">Gift Card Receipt</h2>
+              <h2 className="text-lg font-semibold text-[#333]">Gift Card {receiptTransaction ? "Transaction " : ""}Receipt</h2>
               <button type="button" className="rounded-md border border-[#bbb] px-3 py-2 text-sm text-[#444]" onClick={() => setReceiptCard(null)}>Close</button>
             </div>
             <div className="min-h-0 overflow-y-auto p-5 sm:p-6">
               <div className="rounded-lg border border-[#e5d5dc] p-5 sm:p-7">
                 <div className="border-b border-[#eee] pb-5 text-center">
                   <p className="text-3xl font-semibold text-[#c7668b]">Nail Times</p>
-                  <p className="mt-1 text-lg text-[#555]">Gift Card Receipt</p>
-                  <p className="mt-2 text-sm text-[#777]">{receiptCard.receipt_number}</p>
+                  <p className="mt-1 text-lg text-[#555]">Gift Card {receiptTransaction ? "Transaction " : ""}Receipt</p>
+                  <p className="mt-2 text-sm text-[#777]">{visibleReceiptNumber}</p>
                 </div>
                 <div className="divide-y divide-[#eee] text-sm">
                   <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Customer</span><span className="text-right">{receiptCard.customer_name}</span></div>
                   <div className="flex items-center justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Gift Card Code</span><span className="font-mono text-lg font-semibold tracking-wider">{receiptCard.code}</span></div>
-                  <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Original Amount</span><span className="text-lg font-semibold">{formatMoney(receiptCard.issued_amount_cents)}</span></div>
-                  <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Date Issued</span><span className="text-right">{formatDate(receiptCard.created_at)}</span></div>
-                  <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Expiration Date</span><span className="text-right">{formatDate(receiptCard.expires_at)}</span></div>
+                  {receiptTransaction ? (
+                    <>
+                      <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Transaction</span><span className={`font-semibold ${receiptTransaction.type === "debit" ? "text-red-700" : "text-green-700"}`}>{receiptTransaction.type === "debit" ? "Redeemed" : "Added"}</span></div>
+                      <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Amount</span><span className="text-lg font-semibold">{formatMoney(receiptTransaction.amount_cents)}</span></div>
+                      <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Previous Balance</span><span>{formatMoney(receiptBalanceBeforeCents)}</span></div>
+                      <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">New Balance</span><span className="font-semibold">{formatMoney(receiptTransaction.balance_after_cents)}</span></div>
+                      <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Date</span><span className="text-right">{formatDate(receiptTransaction.created_at)}</span></div>
+                      <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Note</span><span className="text-right">{receiptTransaction.note || "—"}</span></div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Original Amount</span><span className="text-lg font-semibold">{formatMoney(receiptCard.issued_amount_cents)}</span></div>
+                      <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Date Issued</span><span className="text-right">{formatDate(receiptCard.created_at)}</span></div>
+                      <div className="flex justify-between gap-4 py-3"><span className="font-semibold text-[#555]">Expiration Date</span><span className="text-right">{formatDate(receiptCard.expires_at)}</span></div>
+                    </>
+                  )}
                 </div>
                 <p className="mt-5 text-center text-sm text-[#666]">Present the gift card code when redeeming at Nail Times.</p>
               </div>
