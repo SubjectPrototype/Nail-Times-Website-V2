@@ -8,6 +8,8 @@ import AdminLogin from "./pages/AdminLogin";
 import AdminDashboard from "./pages/AdminDashboard";
 import AdminMessages from "./pages/AdminMessages";
 import AdminGiftCards from "./pages/AdminGiftCards";
+import GiftCardWorkerLogin from "./pages/GiftCardWorkerLogin";
+import GiftCardWorker from "./pages/GiftCardWorker";
 import Navbar from "./components/Navbar";
 import CartDrawer from "./components/CartDrawer";
 import floralBg from "./assets/floral-bg.jpg";
@@ -36,6 +38,11 @@ function App() {
     return children;
   };
 
+  const GiftCardWorkerRoute = () => {
+    const token = localStorage.getItem("giftCardWorkerToken");
+    return token ? <GiftCardWorker /> : <GiftCardWorkerLogin />;
+  };
+
   return (
     <div className="relative min-h-screen overflow-x-hidden overflow-y-auto text-[#333] font-['Arial',_sans-serif]">
       <div
@@ -51,6 +58,7 @@ function App() {
         <Route path="/services" element={<Services />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/booking/cancel/:token" element={<BookingCancel />} />
+        <Route path="/giftcard" element={<GiftCardWorkerRoute />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/checkout/admin/login" element={<Navigate to="/admin/login" replace />} />
         <Route

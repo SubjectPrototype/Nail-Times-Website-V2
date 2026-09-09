@@ -102,6 +102,10 @@ npm run printer-bridge
 
 The configured printer is a GoCheckIn MHT-P80A at `10.0.0.101`, using TCP port `9100` and 80mm paper.
 
+## Employee Gift Card Page
+
+Employees can open `/giftcard` for a simple terminal-style screen with Issue New Card, Check Balance, Redeem, and Add Balance actions. Workers can only retrieve one exact card at a time and produce receipts; the full card list, transaction records, editing, and deletion remain restricted to the admin page. Set `GIFTCARD_WORKER_PIN` on the backend Render service to enable the employee PIN login.
+
 ## Common Git Workflow
 
 ```bash

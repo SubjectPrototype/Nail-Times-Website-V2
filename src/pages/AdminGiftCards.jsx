@@ -59,10 +59,12 @@ function escapeReceiptHtml(value) {
     .replace(/'/g, "&#039;");
 }
 
-export default function AdminGiftCards() {
+export default function AdminGiftCards({ workerMode = false }) {
   const apiBaseUrl =
     process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:4000`;
-  const token = localStorage.getItem("adminToken");
+  const tokenKey = workerMode ? "giftCardWorkerToken" : "adminToken";
+  const giftCardApiPath = workerMode ? "/api/gift-cards" : "/api/admin/gift-cards";
+  const token = localStorage.getItem(tokenKey);
   const [cards, setCards] = useState([]);
   const [selectedId, setSelectedId] = useState("");
   const [search, setSearch] = useState("");
@@ -170,6 +172,11 @@ export default function AdminGiftCards() {
       },
     });
     const data = await response.json().catch(() => ({}));
+    if (response.status === 401 && workerMode) {
+      localStorage.removeItem(tokenKey);
+      window.location.href = "/giftcard";
+      throw new Error("Worker session expired");
+    }
     if (!response.ok) throw new Error(data.error || "Request failed");
     return data;
   };
@@ -178,7 +185,7 @@ export default function AdminGiftCards() {
     setIsLoading(true);
     setErrorMessage("");
     try {
-      const data = await apiRequest("/api/admin/gift-cards");
+      const data = await apiRequest(giftCardApiPath);
       setCards(data);
       setSelectedId((current) => data.some((card) => card._id === current) ? current : "");
     } catch (error) {
@@ -285,7 +292,7 @@ export default function AdminGiftCards() {
     setIsSaving(true);
     setErrorMessage("");
     try {
-      const card = await apiRequest(`/api/admin/gift-cards/${selectedCard._id}/transactions`, {
+      const card = await apiRequest(`${giftCardApiPath}/${selectedCard._id}/transactions`, {
         method: "POST",
         body: JSON.stringify(transaction),
       });
@@ -324,7 +331,7 @@ export default function AdminGiftCards() {
     setReceiptAction(channel);
     setReceiptFeedback(null);
     try {
-      const result = await apiRequest(`/api/admin/gift-cards/${receiptCard._id}/receipt`, {
+      const result = await apiRequest(`${giftCardApiPath}/${receiptCard._id}/receipt`, {
         method: "POST",
         body: JSON.stringify({ channel, transaction_id: receiptTransaction?._id }),
       });
@@ -383,8 +390,8 @@ export default function AdminGiftCards() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("adminToken");
-    window.location.href = "/admin/login";
+    localStorage.removeItem(tokenKey);
+    window.location.href = workerMode ? "/giftcard" : "/admin/login";
   };
 
   const inputClass = "w-full rounded-md border border-[#ddd] bg-white px-3 py-2 text-sm outline-none focus:border-[#c7668b]";
@@ -393,12 +400,12 @@ export default function AdminGiftCards() {
     <div className="mx-auto mt-[100px] max-w-[1400px] px-4 py-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-semibold text-[#c7668b]">Gift Cards</h1>
-          <p className="mt-1 text-sm text-[#666]">Manage balances and transaction records.</p>
+          <h1 className="text-3xl font-semibold text-[#c7668b]">{workerMode ? "Gift Card Transactions" : "Gift Cards"}</h1>
+          <p className="mt-1 text-sm text-[#666]">{workerMode ? "Find a card, redeem funds, or add to its balance." : "Manage balances and transaction records."}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Link className="rounded-md border border-[#333] px-3 py-2 text-sm" to="/admin">Bookings</Link>
-          <Link className="rounded-md border border-[#333] px-3 py-2 text-sm" to="/admin/messages">Messages</Link>
+          {!workerMode && <Link className="rounded-md border border-[#333] px-3 py-2 text-sm" to="/admin">Bookings</Link>}
+          {!workerMode && <Link className="rounded-md border border-[#333] px-3 py-2 text-sm" to="/admin/messages">Messages</Link>}
           <button className="rounded-md border border-[#333] px-3 py-2 text-sm" onClick={handleLogout}>Log Out</button>
         </div>
       </header>
@@ -412,18 +419,18 @@ export default function AdminGiftCards() {
         <div className="rounded-lg bg-white p-4 shadow-sm"><p className="text-xs font-semibold uppercase text-[#777]">Total Records</p><p className="mt-1 text-2xl font-semibold text-[#333]">{cards.length}</p></div>
       </section>
 
-      <div className="mt-4 flex justify-end">
+      {!workerMode && <div className="mt-4 flex justify-end">
         <button className="rounded-md bg-[#c7668b] px-4 py-2 text-sm font-semibold text-white" onClick={() => setShowCreate((value) => !value)}>
           {showCreate ? "Close Form" : "+ New Gift Card"}
         </button>
-      </div>
+      </div>}
 
-      {showCreate && (
+      {!workerMode && showCreate && (
         <form onSubmit={handleCreate} className="mt-4 rounded-lg bg-white p-5 shadow-sm">
           <h2 className="text-lg font-semibold">Create Gift Card</h2>
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <label className="text-sm font-medium">Customer name *<input className={`${inputClass} mt-1`} required value={createForm.customer_name} onChange={(event) => setCreateForm({ ...createForm, customer_name: event.target.value })} /></label>
-            <label className="text-sm font-medium">Card code<input className={`${inputClass} mt-1 uppercase`} placeholder="Generated if blank" value={createForm.code} onChange={(event) => setCreateForm({ ...createForm, code: normalizeScannedCardCode(event.target.value) })} onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }} /></label>
+            <label className="text-sm font-medium">Card code *<input className={`${inputClass} mt-1 uppercase`} required placeholder="Swipe a blank card to enter its ID" value={createForm.code} onChange={(event) => setCreateForm({ ...createForm, code: normalizeScannedCardCode(event.target.value) })} onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }} /></label>
             <label className="text-sm font-medium">Initial balance<input className={`${inputClass} mt-1`} type="number" min="0" step="0.01" placeholder="0.00" value={createForm.initial_balance} onChange={(event) => setCreateForm({ ...createForm, initial_balance: event.target.value })} /></label>
             <label className="text-sm font-medium">Email<input className={`${inputClass} mt-1`} type="email" value={createForm.customer_email} onChange={(event) => setCreateForm({ ...createForm, customer_email: event.target.value })} /></label>
             <label className="text-sm font-medium">Phone<input className={`${inputClass} mt-1`} value={createForm.customer_phone} onChange={(event) => setCreateForm({ ...createForm, customer_phone: event.target.value })} /></label>
@@ -562,7 +569,7 @@ export default function AdminGiftCards() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h2 className="text-lg font-semibold">Card Details</h2>
                   <div className="flex items-center gap-2">
-                    <button
+                    {!workerMode && <button
                       type="button"
                       className="rounded-md border border-[#bbb] px-3 py-1.5 text-sm font-medium text-[#444] hover:bg-[#f7f7f7]"
                       onClick={() => {
@@ -572,25 +579,25 @@ export default function AdminGiftCards() {
                       }}
                     >
                       Receipt
-                    </button>
-                    <button
+                    </button>}
+                    {!workerMode && <button
                       type="button"
                       className="rounded-md border border-red-300 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
                       onClick={handleDelete}
                       disabled={isSaving}
                     >
                       Delete Card
-                    </button>
-                    <button
+                    </button>}
+                    {!workerMode && <button
                       type="button"
                       className="rounded-md border border-[#d8a0b5] px-3 py-1.5 text-sm font-medium text-[#b85279] hover:bg-[#fff4f8]"
                       onClick={() => setIsEditing((value) => !value)}
                     >
                       {isEditing ? "Cancel" : "Edit"}
-                    </button>
+                    </button>}
                   </div>
                 </div>
-                {isEditing ? (
+                {!workerMode && isEditing ? (
                   <form onSubmit={handleEdit} className="mt-3 grid gap-3 md:grid-cols-2">
                     <label className="text-sm font-medium">Customer name *<input className={`${inputClass} mt-1`} required value={editForm.customer_name} onChange={(event) => setEditForm({ ...editForm, customer_name: event.target.value })} /></label>
                     <label className="text-sm font-medium">Card code *<input className={`${inputClass} mt-1 uppercase`} required value={editForm.code} onChange={(event) => setEditForm({ ...editForm, code: normalizeScannedCardCode(event.target.value) })} /></label>

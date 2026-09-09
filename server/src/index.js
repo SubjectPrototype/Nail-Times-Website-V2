@@ -1,4 +1,5 @@
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, "../.env") });
 
 const crypto = require("crypto");
 const express = require("express");
@@ -16,7 +17,7 @@ const {
   sendAdminInboundMessageEmail,
   sendGiftCardReceiptEmail,
 } = require("./email");
-const { requireAdmin } = require("./middleware/auth");
+const { requireAdmin, requireGiftCardAccess } = require("./middleware/auth");
 const Appointment = require("./models/Appointment");
 const AdminOtp = require("./models/AdminOtp");
 const Message = require("./models/Message");
@@ -55,6 +56,7 @@ const activeAdminChats = new Map();
 const validateTwilioWebhook = String(process.env.TWILIO_VALIDATE_WEBHOOK || "true").toLowerCase() !== "false";
 const technicianPoolSize = Number(process.env.TECHNICIAN_POOL_SIZE || 6);
 const printBridgeToken = String(process.env.PRINT_BRIDGE_TOKEN || "").trim();
+const giftCardWorkerPin = String(process.env.GIFTCARD_WORKER_PIN || "").trim();
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is required");
@@ -811,6 +813,28 @@ app.post("/api/twilio/webhook", async (req, res) => {
   }
 });
 
+app.post("/api/giftcard/login", (req, res) => {
+  if (!giftCardWorkerPin) {
+    return res.status(503).json({ error: "Worker gift-card access is not configured" });
+  }
+
+  const parsed = z.object({ pin: z.string().trim().min(4).max(64) }).safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Enter the worker PIN" });
+  }
+
+  const expectedBuffer = Buffer.from(giftCardWorkerPin, "utf8");
+  const receivedBuffer = Buffer.from(parsed.data.pin, "utf8");
+  const pinMatches = expectedBuffer.length === receivedBuffer.length
+    && crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
+  if (!pinMatches) {
+    return res.status(401).json({ error: "Incorrect worker PIN" });
+  }
+
+  const token = jwt.sign({ role: "giftcard-worker" }, process.env.JWT_SECRET, { expiresIn: "12h" });
+  return res.json({ token });
+});
+
 app.post("/api/admin/login/init", async (req, res) => {
   const schema = z.object({
     email: z.string().email(),
@@ -834,7 +858,7 @@ app.post("/api/admin/login/init", async (req, res) => {
   }
 
   if (!admin2faEnabled) {
-    const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: "12h" });
+    const token = jwt.sign({ email, role: "admin" }, process.env.JWT_SECRET, { expiresIn: "12h" });
     return res.json({ token, requires_2fa: false });
   }
 
@@ -892,7 +916,7 @@ app.post("/api/admin/login/verify", async (req, res) => {
 
   await AdminOtp.updateOne({ _id: otp._id }, { $set: { used_at: new Date() } });
 
-  const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: "12h" });
+  const token = jwt.sign({ email, role: "admin" }, process.env.JWT_SECRET, { expiresIn: "12h" });
   return res.json({ token });
 });
 
@@ -1175,11 +1199,6 @@ function giftCardCode(value) {
     .replace(/[^A-Z0-9-]/g, "");
 }
 
-function generateGiftCardCode() {
-  const value = crypto.randomBytes(4).toString("hex").toUpperCase();
-  return `GC-${value.slice(0, 4)}-${value.slice(4)}`;
-}
-
 function generateGiftCardReceiptNumber() {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
   return `R-${date}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
@@ -1199,7 +1218,7 @@ function amountToCents(value) {
 }
 
 const giftCardFieldsSchema = z.object({
-  code: z.string().trim().max(40).optional(),
+  code: z.string().trim().min(4).max(40),
   customer_name: z.string().trim().min(1).max(120),
   customer_email: z.string().trim().email().max(200).or(z.literal("")).optional(),
   customer_phone: z.string().trim().max(40).optional(),
@@ -1217,7 +1236,25 @@ app.get("/api/admin/gift-cards", requireAdmin, async (req, res) => {
   }
 });
 
-app.post("/api/admin/gift-cards", requireAdmin, async (req, res) => {
+app.get("/api/gift-cards/lookup", requireGiftCardAccess, async (req, res) => {
+  const code = giftCardCode(req.query.code);
+  if (code.length < 4) {
+    return res.status(400).json({ error: "Scan or enter a valid gift card" });
+  }
+
+  try {
+    await expireGiftCards();
+    const card = await GiftCard.findOne({ code }).lean();
+    if (!card) {
+      return res.status(404).json({ error: "Gift card not found" });
+    }
+    return res.json(card);
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to look up gift card" });
+  }
+});
+
+app.post(["/api/admin/gift-cards", "/api/gift-cards"], requireGiftCardAccess, async (req, res) => {
   const parsed = giftCardFieldsSchema.safeParse(req.body || {});
   const initialBalanceValue = req.body?.initial_balance;
   const initialBalanceAmount = initialBalanceValue === "" || initialBalanceValue === undefined
@@ -1232,7 +1269,7 @@ app.post("/api/admin/gift-cards", requireAdmin, async (req, res) => {
   }
 
   try {
-    const code = giftCardCode(parsed.data.code) || generateGiftCardCode();
+    const code = giftCardCode(parsed.data.code);
     if (code.length < 4) {
       return res.status(400).json({ error: "Gift card code must be at least 4 characters" });
     }
@@ -1243,7 +1280,7 @@ app.post("/api/admin/gift-cards", requireAdmin, async (req, res) => {
           amount_cents: initialBalanceCents,
           balance_after_cents: initialBalanceCents,
           note: "Initial balance",
-          created_by: req.admin?.email || "Admin",
+          created_by: req.admin?.email || "Gift Card Worker",
         }]
       : [];
 
@@ -1306,7 +1343,10 @@ app.patch("/api/admin/gift-cards/:id", requireAdmin, async (req, res) => {
   }
 });
 
-app.post("/api/admin/gift-cards/:id/transactions", requireAdmin, async (req, res) => {
+app.post(
+  ["/api/admin/gift-cards/:id/transactions", "/api/gift-cards/:id/transactions"],
+  requireGiftCardAccess,
+  async (req, res) => {
   const type = req.body?.type;
   const amountCents = amountToCents(req.body?.amount);
   const note = String(req.body?.note || "").trim();
@@ -1349,7 +1389,7 @@ app.post("/api/admin/gift-cards/:id/transactions", requireAdmin, async (req, res
       amount_cents: amountCents,
       balance_after_cents: nextBalance,
       note: note || (type === "credit" ? "Balance added" : "Gift card redeemed"),
-      created_by: req.admin?.email || "Admin",
+      created_by: req.admin?.email || "Gift Card Worker",
     });
     await card.save();
     const responseCard = card.toObject();
@@ -1358,9 +1398,13 @@ app.post("/api/admin/gift-cards/:id/transactions", requireAdmin, async (req, res
   } catch (error) {
     return res.status(500).json({ error: "Failed to record transaction" });
   }
-});
+  }
+);
 
-app.post("/api/admin/gift-cards/:id/receipt", requireAdmin, async (req, res) => {
+app.post(
+  ["/api/admin/gift-cards/:id/receipt", "/api/gift-cards/:id/receipt"],
+  requireGiftCardAccess,
+  async (req, res) => {
   const parsed = z.object({
     channel: z.enum(["email", "text", "printer"]),
     transaction_id: z.string().optional(),
@@ -1409,7 +1453,7 @@ app.post("/api/admin/gift-cards/:id/receipt", requireAdmin, async (req, res) => 
           transaction_note: transaction?.note,
           transaction_created_at: transaction?.created_at,
         },
-        requested_by: req.admin?.email || "Admin",
+        requested_by: req.admin?.email || "Gift Card Worker",
       });
       return res.status(202).json({
         ok: true,
@@ -1459,7 +1503,8 @@ app.post("/api/admin/gift-cards/:id/receipt", requireAdmin, async (req, res) => 
     console.error("Failed to deliver gift card receipt", error.message || error);
     return res.status(500).json({ error: error.message || "Failed to deliver gift card receipt" });
   }
-});
+  }
+);
 
 app.get("/api/print-bridge/jobs/next", requirePrintBridge, async (req, res) => {
   try {

@@ -12,6 +12,10 @@ This process runs on a Windows computer inside the salon network. It polls the h
 
 Keep that terminal window open. A queued job only prints while this bridge process is running. A successful startup shows the backend URL followed by `10.0.0.101:9100`; configuration and polling errors appear in the same window.
 
+## Salon Computer Package
+
+The salon computer does not need the full website project. Copy the packaged `salon-printer-bridge` folder to that computer, install Node.js LTS, and double-click `Start Printer Bridge.bat`. Keep its window open while direct printing is needed.
+
 The confirmed printer is a GoCheckIn MHT-P80A with 80mm paper and an Ethernet connection on TCP port `9100`. The bridge sends standard ESC/POS receipt data directly to that socket.
 
 ## Network Test

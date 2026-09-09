@@ -18,6 +18,7 @@
 - `ADMIN_2FA_ENABLED` (`true` to require OTP, default `false` for direct admin login)
 - `BUSINESS_TIMEZONE` (default `America/Chicago`, used for SMS/email booking time formatting)
 - `PRINT_BRIDGE_TOKEN` (required for direct printing; use the same long random secret in the salon printer bridge)
+- `GIFTCARD_WORKER_PIN` (private PIN used by employees at `/giftcard`)
 
 ## Twilio env
 - `TWILIO_ACCOUNT_SID`
@@ -30,6 +31,11 @@
 - `POST /api/bookings`
 - `POST /api/admin/login/init`
 - `POST /api/admin/login/verify`
+- `POST /api/giftcard/login`
+- `POST /api/gift-cards`
+- `GET /api/gift-cards/lookup?code=...`
+- `POST /api/gift-cards/:id/transactions`
+- `POST /api/gift-cards/:id/receipt`
 - `GET /api/admin/bookings`
 - `POST /api/admin/bookings/:id/confirm`
 - `DELETE /api/admin/bookings/:id`
