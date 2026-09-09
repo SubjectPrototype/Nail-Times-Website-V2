@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 function normalizeCardCode(value) {
   return String(value || "")
@@ -58,6 +58,13 @@ export default function GiftCardWorker() {
   const [receipt, setReceipt] = useState(null);
   const [receiptAction, setReceiptAction] = useState("");
   const [receiptFeedback, setReceiptFeedback] = useState("");
+  const cardIdInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!action || receipt || (action !== "issue" && card)) return undefined;
+    const focusTimer = window.setTimeout(() => cardIdInputRef.current?.focus(), 0);
+    return () => window.clearTimeout(focusTimer);
+  }, [action, card, receipt]);
 
   const apiRequest = async (path, options = {}) => {
     const response = await fetch(`${apiBaseUrl}${path}`, {
@@ -222,14 +229,14 @@ export default function GiftCardWorker() {
           </div>
 
           {action !== "issue" && <form className="mt-5 flex flex-col gap-3 sm:flex-row" onSubmit={handleLookup}>
-            <input autoFocus required className="min-w-0 flex-1 rounded-md border border-[#ccc] px-4 py-3 font-mono text-lg uppercase tracking-wide outline-none focus:border-[#c7668b]" placeholder="Swipe or enter card ID" value={code} onChange={(event) => setCode(normalizeCardCode(event.target.value))} />
+            <input ref={cardIdInputRef} autoFocus required className="min-w-0 flex-1 rounded-md border border-[#ccc] px-4 py-3 font-mono text-lg uppercase tracking-wide outline-none focus:border-[#c7668b]" placeholder="Swipe or enter card ID" value={code} onChange={(event) => setCode(normalizeCardCode(event.target.value))} />
             <button disabled={isLoading} className="rounded-md bg-[#333] px-6 py-3 font-semibold text-white disabled:opacity-50">{isLoading ? "Looking..." : "Find Card"}</button>
           </form>}
 
           {action === "issue" && (
             <form className="mt-5 grid gap-4 sm:grid-cols-2" onSubmit={handleCreate}>
               <label className="text-sm font-semibold">Customer Name *<input required className="mt-1 w-full rounded-md border border-[#ccc] px-4 py-3 outline-none focus:border-[#c7668b]" value={createForm.customer_name} onChange={(event) => setCreateForm({ ...createForm, customer_name: event.target.value })} /></label>
-              <label className="text-sm font-semibold">Card ID *<input required autoFocus className="mt-1 w-full rounded-md border border-[#ccc] px-4 py-3 font-mono uppercase outline-none focus:border-[#c7668b]" placeholder="Swipe a blank card to enter its ID" value={createForm.code} onChange={(event) => setCreateForm({ ...createForm, code: normalizeCardCode(event.target.value) })} onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }} /></label>
+              <label className="text-sm font-semibold">Card ID *<input ref={cardIdInputRef} required autoFocus className="mt-1 w-full rounded-md border border-[#ccc] px-4 py-3 font-mono uppercase outline-none focus:border-[#c7668b]" placeholder="Swipe a blank card to enter its ID" value={createForm.code} onChange={(event) => setCreateForm({ ...createForm, code: normalizeCardCode(event.target.value) })} onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }} /></label>
               <label className="text-sm font-semibold">Initial Balance<input required type="number" min="0" step="0.01" className="mt-1 w-full rounded-md border border-[#ccc] px-4 py-3 outline-none focus:border-[#c7668b]" placeholder="0.00" value={createForm.initial_balance} onChange={(event) => setCreateForm({ ...createForm, initial_balance: event.target.value })} /></label>
               <label className="text-sm font-semibold">Phone<input className="mt-1 w-full rounded-md border border-[#ccc] px-4 py-3 outline-none focus:border-[#c7668b]" value={createForm.customer_phone} onChange={(event) => setCreateForm({ ...createForm, customer_phone: event.target.value })} /></label>
               <label className="text-sm font-semibold">Email<input type="email" className="mt-1 w-full rounded-md border border-[#ccc] px-4 py-3 outline-none focus:border-[#c7668b]" value={createForm.customer_email} onChange={(event) => setCreateForm({ ...createForm, customer_email: event.target.value })} /></label>
@@ -253,7 +260,7 @@ export default function GiftCardWorker() {
 
               {["credit", "debit"].includes(action) && status === "active" && (
                 <form className="mt-5 space-y-4" onSubmit={handleTransaction}>
-                  <label className="block text-sm font-semibold">Amount<input required type="number" min="0.01" step="0.01" className="mt-1 w-full rounded-md border border-[#ccc] px-4 py-3 text-xl outline-none focus:border-[#c7668b]" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
+                  <label className="block text-sm font-semibold">{action === "debit" ? "Redeem Amount" : "Amount to Add"}<input required type="number" min="0.01" step="0.01" className="mt-1 w-full rounded-md border border-[#ccc] px-4 py-3 text-xl outline-none focus:border-[#c7668b]" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
                   <label className="block text-sm font-semibold">Note<input maxLength="500" className="mt-1 w-full rounded-md border border-[#ccc] px-4 py-3 outline-none focus:border-[#c7668b]" placeholder="Service or reason" value={note} onChange={(event) => setNote(event.target.value)} /></label>
                   <button disabled={isLoading} className={`w-full rounded-md px-5 py-4 text-lg font-bold text-white disabled:opacity-50 ${action === "debit" ? "bg-[#c7668b]" : "bg-green-700"}`}>{isLoading ? "Recording..." : action === "debit" ? `Redeem ${amount ? `$${amount}` : "Balance"}` : `Add ${amount ? `$${amount}` : "Balance"}`}</button>
                 </form>

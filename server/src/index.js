@@ -1478,7 +1478,7 @@ app.post(
     }
     const message = transaction
       ? [
-          "Nail Times Gift Card Transaction Receipt",
+          "nailtimesdallas.com Gift Card Transaction Receipt",
           `Receipt: ${receiptNumber}`,
           `Gift card: ${card.code}`,
           `Transaction: ${transaction.type === "debit" ? "Redeemed" : "Added"}`,
@@ -1489,7 +1489,7 @@ app.post(
           transaction.note ? `Note: ${transaction.note}` : "",
         ].filter(Boolean).join("\n")
       : [
-          "Nail Times Gift Card Receipt",
+          "nailtimesdallas.com Gift Card Receipt",
           `Receipt: ${card.receipt_number}`,
           `Gift card: ${card.code}`,
           `Amount: $${(Number(card.issued_amount_cents || 0) / 100).toFixed(2)}`,
