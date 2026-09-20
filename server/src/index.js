@@ -1254,6 +1254,45 @@ app.get("/api/gift-cards/lookup", requireGiftCardAccess, async (req, res) => {
   }
 });
 
+app.patch("/api/gift-cards/:id/contact", requireGiftCardAccess, async (req, res) => {
+  const parsed = z.object({
+    customer_name: z.string().trim().min(1).max(120).optional(),
+    customer_email: z.string().trim().email().max(200).optional(),
+    customer_phone: z.string().trim().min(1).max(40).optional(),
+  }).strict().safeParse(req.body);
+
+  if (!/^[a-fA-F0-9]{24}$/.test(req.params.id)) {
+    return res.status(400).json({ error: "Invalid gift card ID" });
+  }
+  if (!parsed.success || Object.keys(parsed.data).length === 0) {
+    return res.status(400).json({ error: "Enter a valid name, email, or phone number" });
+  }
+
+  try {
+    const card = await GiftCard.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        $and: Object.keys(parsed.data).map((field) => ({
+          $or: [{ [field]: null }, { [field]: /^\s*$/ }],
+        })),
+      },
+      { $set: parsed.data },
+      { new: true, runValidators: true }
+    );
+    if (!card) {
+      const exists = await GiftCard.exists({ _id: req.params.id });
+      return res.status(exists ? 409 : 404).json({
+        error: exists
+          ? "These details have already been saved. Scan the card again to see the latest details; only an admin can change them."
+          : "Gift card not found",
+      });
+    }
+    return res.json(card);
+  } catch (error) {
+    return res.status(500).json({ error: "Failed to save customer details" });
+  }
+});
+
 app.post(["/api/admin/gift-cards", "/api/gift-cards"], requireGiftCardAccess, async (req, res) => {
   const parsed = giftCardFieldsSchema.safeParse(req.body || {});
   const initialBalanceValue = req.body?.initial_balance;

@@ -30,7 +30,7 @@ if not exist ".env" (
     echo PRINTER_CHARACTERS_PER_LINE=42
     echo PRINTER_AUTO_CUT=true
     echo PRINTER_TIMEOUT_MS=7000
-    echo BRIDGE_POLL_INTERVAL_MS=3000
+    echo BRIDGE_POLL_INTERVAL_MS=5000
     echo BUSINESS_TIMEZONE=America/Chicago
   ) > ".env"
   echo.

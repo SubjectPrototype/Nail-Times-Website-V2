@@ -43,6 +43,12 @@ const actions = [
   { id: "balance", title: "Check Balance", description: "View the current card balance", symbol: "$" },
 ];
 
+const contactFields = [
+  { key: "customer_name", label: "Name", type: "text", maxLength: 120 },
+  { key: "customer_email", label: "Email", type: "email", maxLength: 200 },
+  { key: "customer_phone", label: "Phone", type: "tel", maxLength: 40 },
+];
+
 export default function GiftCardWorker() {
   const apiBaseUrl =
     process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:4000`;
@@ -58,6 +64,9 @@ export default function GiftCardWorker() {
   const [receipt, setReceipt] = useState(null);
   const [receiptAction, setReceiptAction] = useState("");
   const [receiptFeedback, setReceiptFeedback] = useState("");
+  const [contactForm, setContactForm] = useState({});
+  const [contactFeedback, setContactFeedback] = useState("");
+  const [isSavingContact, setIsSavingContact] = useState(false);
   const cardIdInputRef = useRef(null);
 
   useEffect(() => {
@@ -91,6 +100,8 @@ export default function GiftCardWorker() {
     setAmount("");
     setNote("");
     setErrorMessage("");
+    setContactForm({});
+    setContactFeedback("");
   };
 
   const chooseAction = (nextAction) => {
@@ -100,10 +111,13 @@ export default function GiftCardWorker() {
 
   const handleLookup = async (event) => {
     event.preventDefault();
+    if (isLoading || isSavingContact) return;
     const normalizedCode = normalizeCardCode(code);
     setCode(normalizedCode);
     setErrorMessage("");
     setCard(null);
+    setContactForm({});
+    setContactFeedback("");
     setIsLoading(true);
     try {
       setCard(await apiRequest(`/api/gift-cards/lookup?code=${encodeURIComponent(normalizedCode)}`));
@@ -114,9 +128,35 @@ export default function GiftCardWorker() {
     }
   };
 
+  const handleSaveContact = async (event) => {
+    event.preventDefault();
+    if (!card || isLoading || isSavingContact) return;
+    const updates = Object.fromEntries(contactFields
+      .filter(({ key }) => !String(card[key] || "").trim() && contactForm[key]?.trim())
+      .map(({ key }) => [key, contactForm[key].trim()]));
+    if (Object.keys(updates).length === 0) return;
+
+    setIsSavingContact(true);
+    setErrorMessage("");
+    setContactFeedback("");
+    try {
+      const updatedCard = await apiRequest(`/api/gift-cards/${card._id}/contact`, {
+        method: "PATCH",
+        body: JSON.stringify(updates),
+      });
+      setCard(updatedCard);
+      setContactForm({});
+      setContactFeedback("Customer details saved.");
+    } catch (error) {
+      setErrorMessage(error.message || "Failed to save customer details");
+    } finally {
+      setIsSavingContact(false);
+    }
+  };
+
   const handleTransaction = async (event) => {
     event.preventDefault();
-    if (!card || !["credit", "debit"].includes(action)) return;
+    if (!card || isSavingContact || isLoading || hasContactUpdates || !["credit", "debit"].includes(action)) return;
     setErrorMessage("");
     setIsLoading(true);
     try {
@@ -200,6 +240,8 @@ export default function GiftCardWorker() {
 
   const status = cardStatus(card);
   const selectedAction = actions.find((item) => item.id === action);
+  const missingContactFields = contactFields.filter(({ key }) => card && !String(card[key] || "").trim());
+  const hasContactUpdates = missingContactFields.some(({ key }) => contactForm[key]?.trim());
 
   return (
     <main className="mx-auto mt-[100px] max-w-[760px] px-4 py-8">
@@ -225,12 +267,12 @@ export default function GiftCardWorker() {
         <section className="mt-8 rounded-xl bg-white p-5 shadow-md sm:p-7">
           <div className="flex items-center justify-between gap-3">
             <div><p className="text-sm font-semibold uppercase tracking-wide text-[#c7668b]">{selectedAction?.title}</p><h2 className="mt-1 text-xl font-semibold">{action === "issue" ? "Enter the new gift card details" : "Scan or enter the gift card"}</h2></div>
-            <button type="button" className="rounded-md border border-[#bbb] px-3 py-2 text-sm" onClick={() => setAction("")}>Back</button>
+            <button type="button" disabled={isLoading || isSavingContact} className="rounded-md border border-[#bbb] px-3 py-2 text-sm disabled:opacity-50" onClick={() => setAction("")}>Back</button>
           </div>
 
           {action !== "issue" && <form className="mt-5 flex flex-col gap-3 sm:flex-row" onSubmit={handleLookup}>
             <input ref={cardIdInputRef} autoFocus required className="min-w-0 flex-1 rounded-md border border-[#ccc] px-4 py-3 font-mono text-lg uppercase tracking-wide outline-none focus:border-[#c7668b]" placeholder="Swipe or enter card ID" value={code} onChange={(event) => setCode(normalizeCardCode(event.target.value))} />
-            <button disabled={isLoading} className="rounded-md bg-[#333] px-6 py-3 font-semibold text-white disabled:opacity-50">{isLoading ? "Looking..." : "Find Card"}</button>
+            <button disabled={isLoading || isSavingContact} className="rounded-md bg-[#333] px-6 py-3 font-semibold text-white disabled:opacity-50">{isLoading ? "Looking..." : "Find Card"}</button>
           </form>}
 
           {action === "issue" && (
@@ -258,15 +300,32 @@ export default function GiftCardWorker() {
                 {status === "expired" && <p className="mt-1 text-sm text-red-700">Expired {formatDate(card.expires_at)}. Transactions are locked.</p>}
               </div>
 
+              <form className="mt-5 rounded-lg border border-[#ead5dd] p-4" onSubmit={handleSaveContact}>
+                <h2 className="text-lg font-semibold">Customer Details</h2>
+                {missingContactFields.length > 0 && <p className="mt-1 text-sm text-[#666]">Add any missing details and save them before making a transaction. Saved details can only be changed by an admin.</p>}
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {contactFields.map(({ key, label, type, maxLength }) => (
+                    String(card[key] || "").trim() ? (
+                      <div key={key} className="min-w-0 text-sm"><p className="font-semibold">{label}</p><p className="mt-1 break-words text-[#666]">{card[key]}</p></div>
+                    ) : (
+                      <label key={key} className="text-sm font-semibold">{label}<input type={type} maxLength={maxLength} disabled={isLoading || isSavingContact} className="mt-1 w-full rounded-md border border-[#ccc] px-4 py-3 outline-none focus:border-[#c7668b] disabled:opacity-50" placeholder={`Add ${label.toLowerCase()}`} value={contactForm[key] || ""} onChange={(event) => setContactForm({ ...contactForm, [key]: event.target.value })} /></label>
+                    )
+                  ))}
+                </div>
+                {missingContactFields.length > 0 && <button disabled={isLoading || isSavingContact || !hasContactUpdates} className="mt-4 rounded-md bg-[#c7668b] px-4 py-3 font-semibold text-white disabled:opacity-50">{isSavingContact ? "Saving..." : "Save Customer Details"}</button>}
+                {contactFeedback && <p role="status" className="mt-3 text-sm text-green-700">{contactFeedback}</p>}
+              </form>
+
               {["credit", "debit"].includes(action) && status === "active" && (
                 <form className="mt-5 space-y-4" onSubmit={handleTransaction}>
                   <label className="block text-sm font-semibold">{action === "debit" ? "Redeem Amount" : "Amount to Add"}<input required type="number" min="0.01" step="0.01" className="mt-1 w-full rounded-md border border-[#ccc] px-4 py-3 text-xl outline-none focus:border-[#c7668b]" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
                   <label className="block text-sm font-semibold">Note<input maxLength="500" className="mt-1 w-full rounded-md border border-[#ccc] px-4 py-3 outline-none focus:border-[#c7668b]" placeholder="Service or reason" value={note} onChange={(event) => setNote(event.target.value)} /></label>
-                  <button disabled={isLoading} className={`w-full rounded-md px-5 py-4 text-lg font-bold text-white disabled:opacity-50 ${action === "debit" ? "bg-[#c7668b]" : "bg-green-700"}`}>{isLoading ? "Recording..." : action === "debit" ? `Redeem ${amount ? `$${amount}` : "Balance"}` : `Add ${amount ? `$${amount}` : "Balance"}`}</button>
+                  <button disabled={isLoading || isSavingContact || hasContactUpdates} className={`w-full rounded-md px-5 py-4 text-lg font-bold text-white disabled:opacity-50 ${action === "debit" ? "bg-[#c7668b]" : "bg-green-700"}`}>{isLoading ? "Recording..." : action === "debit" ? `Redeem ${amount ? `$${amount}` : "Balance"}` : `Add ${amount ? `$${amount}` : "Balance"}`}</button>
+                  {hasContactUpdates && <p className="text-sm text-[#666]">Save the customer details above, or clear those fields to continue without saving them.</p>}
                 </form>
               )}
 
-              <button type="button" className="mt-4 w-full rounded-md border border-[#999] px-4 py-3 font-semibold" onClick={resetCard}>Use Another Card</button>
+              <button type="button" disabled={isLoading || isSavingContact} className="mt-4 w-full rounded-md border border-[#999] px-4 py-3 font-semibold disabled:opacity-50" onClick={resetCard}>Use Another Card</button>
             </div>
           )}
         </section>

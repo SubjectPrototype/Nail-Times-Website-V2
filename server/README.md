@@ -34,6 +34,7 @@
 - `POST /api/giftcard/login`
 - `POST /api/gift-cards`
 - `GET /api/gift-cards/lookup?code=...`
+- `PATCH /api/gift-cards/:id/contact` (authenticated, fills missing name/email/phone only; existing values cannot be overwritten)
 - `POST /api/gift-cards/:id/transactions`
 - `POST /api/gift-cards/:id/receipt`
 - `GET /api/admin/bookings`

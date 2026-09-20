@@ -21,6 +21,7 @@ server/.env
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+salon-printer-bridge*.zip
 
 # misc
 .DS_Store

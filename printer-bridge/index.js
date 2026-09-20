@@ -26,7 +26,7 @@ const printerIp = String(process.env.PRINTER_IP || "10.0.0.101");
 const printerPort = Number(process.env.PRINTER_PORT || 9100);
 const paperWidth = Number(process.env.PRINTER_PAPER_WIDTH_MM || 80);
 const charactersPerLine = Number(process.env.PRINTER_CHARACTERS_PER_LINE || (paperWidth <= 58 ? 32 : 42));
-const pollIntervalMs = Math.max(1000, Number(process.env.BRIDGE_POLL_INTERVAL_MS || 3000));
+const pollIntervalMs = Math.max(1000, Number(process.env.BRIDGE_POLL_INTERVAL_MS || 5000));
 const socketTimeoutMs = Math.max(1000, Number(process.env.PRINTER_TIMEOUT_MS || 7000));
 const autoCut = String(process.env.PRINTER_AUTO_CUT || "true").toLowerCase() !== "false";
 const businessTimeZone = process.env.BUSINESS_TIMEZONE || "America/Chicago";
@@ -60,11 +60,6 @@ function cleanText(value) {
     .normalize("NFKD")
     .replace(/[^\x20-\x7E]/g, "")
     .trim();
-}
-
-function center(value) {
-  const text = cleanText(value).slice(0, charactersPerLine);
-  return `${" ".repeat(Math.max(0, Math.floor((charactersPerLine - text.length) / 2)))}${text}\n`;
 }
 
 function wrap(value) {
@@ -122,10 +117,13 @@ function buildGiftCardReceipt(payload) {
     Buffer.from([0x1b, 0x61, 0x01]),
     Buffer.from([0x1b, 0x45, 0x01]),
     Buffer.from([0x1d, 0x21, 0x11]),
-    Buffer.from(center("NAIL TIMES"), "ascii"),
+    Buffer.from("NAIL TIMES\n", "ascii"),
     Buffer.from([0x1d, 0x21, 0x00]),
-    Buffer.from(center(isTransactionReceipt ? "TRANSACTION RECEIPT" : "GIFT CARD RECEIPT"), "ascii"),
-    Buffer.from(center(payload.receipt_number), "ascii"),
+    Buffer.from([0x1b, 0x45, 0x00]),
+    Buffer.from("6817 W Northwest Hwy\nDallas, TX 75225\n(214) 363-1510\nhttps://www.nailtimesdallas.com\n\n", "ascii"),
+    Buffer.from([0x1b, 0x45, 0x01]),
+    Buffer.from(`${isTransactionReceipt ? "TRANSACTION RECEIPT" : "GIFT CARD RECEIPT"}\n`, "ascii"),
+    Buffer.from(`${cleanText(payload.receipt_number)}\n`, "ascii"),
     Buffer.from([0x1b, 0x45, 0x00]),
     Buffer.from([0x1b, 0x61, 0x00]),
     Buffer.from(`${"-".repeat(charactersPerLine)}\n`, "ascii"),
